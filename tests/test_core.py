@@ -66,5 +66,26 @@ class QueueTest(unittest.TestCase):
         self.assertIsNone(SpeechQueue().take(timeout=0.01))
 
 
+class ConfigTest(unittest.TestCase):
+    def test_save_writes_only_changes_and_load_restores_defaults(self):
+        import json
+        import tempfile
+        from pathlib import Path
+
+        from ema_tts import config
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "config.json"
+            data = config.load(path)
+            data["voice"]["speed"] = 1.5
+            data["extra"] = {"a": 1}
+            config.save(data, path)
+            self.assertEqual(json.loads(path.read_text(encoding="utf-8")),
+                             {"voice": {"speed": 1.5}, "extra": {"a": 1}})
+            loaded = config.load(path)
+            self.assertEqual(loaded["voice"]["speed"], 1.5)
+            self.assertEqual(loaded["hotkeys"], config.DEFAULTS["hotkeys"])
+
+
 if __name__ == "__main__":
     unittest.main()

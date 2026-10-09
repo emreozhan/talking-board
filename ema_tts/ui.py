@@ -160,6 +160,7 @@ class App:
         self.auto_read = tk.BooleanVar(value=cfg.load()["server"]["auto_read"])
         self.menu.add_checkbutton(label="Agent mesajlarını oku", variable=self.auto_read,
                                   command=self._save_auto_read)
+        self.menu.add_command(label="Ayarlar…", command=self.open_settings)
         self.menu.add_separator()
         self.menu.add_command(label="Çıkış", command=self.quit)
 
@@ -188,6 +189,9 @@ class App:
         tk.Button(header, text="✕", command=self.hide_panel, bg=BG, fg=MUTED, bd=0,
                   activebackground=ROW_BG, activeforeground=FG, font=self.font(10),
                   cursor="hand2").pack(side="right")
+        tk.Button(header, text="⚙", command=self.open_settings, bg=BG, fg=MUTED, bd=0,
+                  activebackground=ROW_BG, activeforeground=FG, font=self.font(10),
+                  cursor="hand2").pack(side="right", padx=(0, self.px(4)))
 
         self.status_label = tk.Label(self.panel, bg=BG, fg=MUTED, font=self.font(9), anchor="w")
         self.status_label.pack(fill="x", padx=self.px(12))
@@ -297,6 +301,11 @@ class App:
         for item in self.queue.snapshot():
             if item.state == PLAYING:
                 self.queue.remove(item.id)
+
+    def open_settings(self):
+        from .settings_window import SettingsWindow  # settings_window bu modülden import ediyor
+
+        SettingsWindow.show(self)
 
     def quit(self):
         self._save_position()

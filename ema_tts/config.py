@@ -10,6 +10,9 @@ CONFIG_FILE = ROOT / "config.json"
 DEFAULTS = {
     "voice": {
         "speed": 1.0,
+        "volume": 100,
+        "seed": None,  # None: her okumada rastgele
+        "output_device": None,  # None: sistem varsayılanı
         "sample_rate": 48000,
         "max_chars": 300,
         "use_lightning": False,
@@ -43,4 +46,13 @@ def load(path: Path = CONFIG_FILE) -> dict:
 
 
 def save(config: dict, path: Path = CONFIG_FILE):
-    path.write_text(json.dumps(config, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    """Yalnızca varsayılandan farklı değerleri yazar; böylece varsayılanlar dosyada donmaz."""
+    changed = {}
+    for section, values in config.items():
+        defaults = DEFAULTS.get(section)
+        if isinstance(values, dict) and isinstance(defaults, dict):
+            values = {key: value for key, value in values.items() if defaults.get(key, object()) != value}
+            if not values:
+                continue
+        changed[section] = values
+    path.write_text(json.dumps(changed, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
