@@ -21,7 +21,11 @@ DEFAULTS = {
         "toggle_panel": "<alt>+<shift>+4",
         "clear": "<alt>+<shift>+5",
     },
-    "server": {},
+    "server": {
+        "enabled": True,
+        "port": 47821,
+        "auto_read": True,
+    },
 }
 
 

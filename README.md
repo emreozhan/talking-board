@@ -47,10 +47,32 @@ python -m venv .venv
 | `voice.sample_rate` | 48000, 24000, 16000 veya 8000 |
 | `voice.max_chars` | Modelin tek seferde okuduğu en uzun parça |
 | `voice.use_lightning` | `torch.compile` ile hızlı yol; Windows'ta genelde Triton olmadığı için kapalı |
+| `server.enabled` | Yerel `/speak` uç noktasını aç/kapat |
+| `server.port` | Uç noktanın portu (yalnızca `127.0.0.1`), varsayılan 47821 |
+| `server.auto_read` | Agent mesajları kuyruğa eklensin mi; sağ tık menüsündeki "Agent mesajlarını oku" ile de değişir |
 
 Kısayol biçimi: değiştiriciler `<ctrl>`, `<alt>`, `<shift>`, `<win>`; tuş olarak harf, rakam, `<f1>`–`<f24>`, `<space>` ve `<insert>`, `<delete>`, `<home>`, `<end>`, `<page_up>`, `<page_down>`, `<pause>`, `<scroll_lock>`, ok tuşları, medya tuşları (`<media_play_pause>` vb.); parçalar `+` ile birleşir, ör. `<ctrl>+<shift>+<f9>`. Boş dizge (`""`) o eylemi kapatır. Ctrl+Alt kombinasyonlarından kaçın: Türkçe Q klavyede AltGr, Ctrl+Alt sayılır ve @ € { } [ ] gibi karakterleri yazmayı engeller.
 
 Hatalar `ema-tts.log` dosyasına yazılır.
+
+## Agent mesajlarını otomatik okuma
+
+Uygulama açıkken `127.0.0.1:47821` üzerinde küçük bir uç nokta dinler. Claude Code'un Stop hook'u her cevabın sonunda metni buraya yollar; metin kuyruğa eklenip okunur.
+
+```powershell
+python hooks/install_claude_hook.py              # ~/.claude/settings.json'a Stop hook'unu ekler
+python hooks/install_claude_hook.py --uninstall  # kaldırır
+```
+
+Kurulum mevcut ayarları korur, yazmadan önce `settings.json.bak-ema-tts` yedeği alır; tekrar çalıştırmak girdiyi çoğaltmaz. Hook uygulama kapalıyken ya da hata olduğunda sessizce çıkar, Claude'u bekletmez. Okumayı geçici olarak kapatmak için logonun sağ tık menüsünden "Agent mesajlarını oku" işaretini kaldır. Hook portu `config.json`'dan okur; `EMA_TTS_PORT` ortam değişkeniyle geçersiz kılınabilir.
+
+Başka araçlar da metin yollayabilir:
+
+```powershell
+Invoke-RestMethod -Method Post -Uri http://127.0.0.1:47821/speak -ContentType 'application/json' -Body '{"text": "Merhaba"}'
+```
+
+Yanıtlar: `202 {"id": n}` eklendi, `202 {"ignored": true}` okuma kapalı, `409` boş ya da zaten kuyrukta, `400` hatalı JSON, `403` tarayıcı/yabancı host, `413` gövde 256 KB'tan büyük, `415` Content-Type `application/json` değil.
 
 ## Test
 

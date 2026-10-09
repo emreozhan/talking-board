@@ -12,5 +12,9 @@
     "toggle_panel": "<alt>+<shift>+4",
     "clear": "<alt>+<shift>+5"
   },
-  "server": {}
+  "server": {
+    "enabled": true,
+    "port": 47821,
+    "auto_read": true
+  }
 }
