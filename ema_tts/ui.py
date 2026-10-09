@@ -32,6 +32,7 @@ class App:
         self.queue = speech_queue
         self.player = player
         self.hotkey_label = hotkey_label
+        self.hotkey_warning = ""  # kaydedilemeyen kısayollar
         self.state_file = state_file
         self.events: stdqueue.Queue[str] = stdqueue.Queue()  # başka thread'lerden gelen istekler
 
@@ -213,7 +214,12 @@ class App:
         text = f"{status} · {len(items)} öğe · kısayol: {self.hotkey_label}"
         if self.player.status == pl.ERROR:
             text = f"Model yüklenemedi: {self.player.error.strip().splitlines()[-1]}"
-        self.status_label.configure(text=text, fg="#fca5a5" if self.player.status == pl.ERROR else MUTED)
+        color = "#fca5a5" if self.player.status == pl.ERROR else MUTED
+        if self.hotkey_warning:
+            text += "\n" + self.hotkey_warning
+            color = "#fca5a5" if self.player.status == pl.ERROR else "#fcd34d"
+        self.status_label.configure(text=text, fg=color, justify="left",
+                                    wraplength=self.panel_width - self.px(24))
         self.pause_button.configure(text="Devam" if self.player.paused else "Duraklat")
 
         for child in self.rows.winfo_children():
@@ -278,6 +284,11 @@ class App:
     def toggle_pause(self):
         self.player.toggle_pause()
 
+    def skip_current(self):
+        for item in self.queue.snapshot():
+            if item.state == PLAYING:
+                self.queue.remove(item.id)
+
     def quit(self):
         self._save_position()
         self.root.destroy()
@@ -291,6 +302,14 @@ class App:
                 break
             if event == "clipboard":
                 self.add_from_clipboard()
+            elif event == "pause":
+                self.toggle_pause()
+            elif event == "skip":
+                self.skip_current()
+            elif event == "panel":
+                self.toggle_panel()
+            elif event == "clear":
+                self.queue.clear()
 
         seen = (self.queue.version, self.player.status, self.player.paused)
         changed = seen != self._seen
