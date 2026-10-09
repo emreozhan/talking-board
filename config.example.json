@@ -1,0 +1,7 @@
+{
+  "hotkey": "<ctrl>+<alt>+<space>",
+  "speed": 1.0,
+  "sample_rate": 48000,
+  "max_chars": 300,
+  "use_lightning": false
+}
