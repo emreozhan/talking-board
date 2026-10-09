@@ -8,5 +8,9 @@
   "hotkeys": {
     "add_clipboard": "<ctrl>+<alt>+<space>"
   },
-  "server": {}
+  "server": {
+    "enabled": true,
+    "port": 47821,
+    "auto_read": true
+  }
 }

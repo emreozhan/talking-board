@@ -17,7 +17,11 @@ DEFAULTS = {
     "hotkeys": {
         "add_clipboard": "<ctrl>+<alt>+<space>",
     },
-    "server": {},
+    "server": {
+        "enabled": True,
+        "port": 47821,
+        "auto_read": True,
+    },
 }
 
 

@@ -7,6 +7,7 @@ import sys
 from pynput import keyboard
 
 from . import config as cfg
+from . import server as speak_server
 from .player import Player
 from .speech_queue import SpeechQueue
 from .ui import App
@@ -49,10 +50,16 @@ def main():
 
     hotkeys = listen_hotkey(hotkey, lambda: app.events.put("clipboard"))
     player.start()
+    server = None
+    if config["server"]["enabled"]:
+        auto_read = lambda: cfg.load()["server"]["auto_read"]  # menüden değişince yeniden başlatma gerekmesin
+        server = speak_server.start(speech_queue, config["server"]["port"], auto_read)
     try:
         app.run()
     finally:
         hotkeys.stop()
+        if server:
+            server.stop()
 
 
 if __name__ == "__main__":

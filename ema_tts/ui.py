@@ -6,6 +6,7 @@ import queue as stdqueue
 import tkinter as tk
 from pathlib import Path
 
+from . import config as cfg
 from . import player as pl
 from .speech_queue import PLAYING, SpeechQueue
 
@@ -155,8 +156,16 @@ class App:
         self.menu.add_command(label="Kuyruğu göster", command=self.toggle_panel)
         self.menu.add_command(label="Panodan ekle", command=self.add_from_clipboard)
         self.menu.add_command(label="Duraklat / Devam", command=self.toggle_pause)
+        self.auto_read = tk.BooleanVar(value=cfg.load()["server"]["auto_read"])
+        self.menu.add_checkbutton(label="Agent mesajlarını oku", variable=self.auto_read,
+                                  command=self._save_auto_read)
         self.menu.add_separator()
         self.menu.add_command(label="Çıkış", command=self.quit)
+
+    def _save_auto_read(self):
+        config = cfg.load()
+        config["server"]["auto_read"] = self.auto_read.get()
+        cfg.save(config)
 
     def _on_menu(self, event):
         self.menu.tk_popup(event.x_root, event.y_root)
