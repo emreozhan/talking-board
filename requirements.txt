@@ -2,5 +2,4 @@
 torch>=2.1
 ema-lightning>=1.0.4
 sounddevice>=0.5
-pynput>=1.7
 numpy>=1.24

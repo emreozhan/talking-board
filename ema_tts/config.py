@@ -15,7 +15,11 @@ DEFAULTS = {
         "use_lightning": False,
     },
     "hotkeys": {
-        "add_clipboard": "<ctrl>+<alt>+<space>",
+        "add_clipboard": "<alt>+<shift>+1",
+        "pause_resume": "<alt>+<shift>+2",
+        "skip": "<alt>+<shift>+3",
+        "toggle_panel": "<alt>+<shift>+4",
+        "clear": "<alt>+<shift>+5",
     },
     "server": {},
 }

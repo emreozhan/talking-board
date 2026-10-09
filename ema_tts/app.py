@@ -1,34 +1,44 @@
-"""Giriş noktası: ayarları okur, oynatıcıyı, kısayolu ve arayüzü başlatır."""
+"""Giriş noktası: ayarları okur, oynatıcıyı, kısayolları ve arayüzü başlatır."""
 
 import ctypes
 import os
 import sys
 
-from pynput import keyboard
-
 from . import config as cfg
+from . import hotkeys as hk
 from .player import Player
 from .speech_queue import SpeechQueue
 from .ui import App
 
+# hotkeys bölümündeki eylem -> arayüz olayı
+ACTIONS = {
+    "add_clipboard": "clipboard",
+    "pause_resume": "pause",
+    "skip": "skip",
+    "toggle_panel": "panel",
+    "clear": "clear",
+}
+
 
 def hotkey_label(hotkey: str) -> str:
-    return "+".join(part.strip("<>").capitalize() for part in hotkey.split("+"))
+    if not hotkey:
+        return "kapalı"
+    try:
+        return hk.label(hotkey)
+    except ValueError:
+        return "geçersiz"
 
 
-def listen_hotkey(hotkey: str, callback) -> keyboard.Listener:
-    """GlobalHotKeys gibi, ama AltGr'yi (Türkçe klavyede sağ Alt) Alt sayar."""
-    combo = keyboard.HotKey(keyboard.HotKey.parse(hotkey), callback)
-
-    def normalize(key):
-        key = listener.canonical(key)
-        return keyboard.Key.alt if key == keyboard.Key.alt_gr else key
-
-    listener = keyboard.Listener(on_press=lambda key: combo.press(normalize(key)),
-                                 on_release=lambda key: combo.release(normalize(key)))
-    listener.daemon = True
-    listener.start()
-    return listener
+def start_hotkeys(settings: dict, events) -> tuple[hk.Hotkeys, list[str]]:
+    """Eylemleri kaydeder; boş dizge eylemi kapatır. Başarısızları kullanıcı mesajı olarak döner."""
+    bindings = {name: (settings[name], lambda event=event: events.put(event))
+                for name, event in ACTIONS.items() if settings.get(name)}
+    hotkeys = hk.Hotkeys(bindings)
+    failures = hotkeys.start()
+    messages = [f"{message} (hotkeys.{name})" for name, message in failures.items()]
+    for message in messages:
+        print(f"kısayol kaydedilemedi: {message}")
+    return hotkeys, messages
 
 
 def main():
@@ -44,10 +54,11 @@ def main():
     speech_queue = SpeechQueue()
     player = Player(speech_queue, speed=voice["speed"], sample_rate=voice["sample_rate"],
                     max_chars=voice["max_chars"], use_lightning=voice["use_lightning"])
-    hotkey = config["hotkeys"]["add_clipboard"]
-    app = App(speech_queue, player, hotkey_label(hotkey), cfg.ROOT / "state.json")
+    app = App(speech_queue, player, hotkey_label(config["hotkeys"].get("add_clipboard", "")),
+              cfg.ROOT / "state.json")
 
-    hotkeys = listen_hotkey(hotkey, lambda: app.events.put("clipboard"))
+    hotkeys, failures = start_hotkeys(config["hotkeys"], app.events)
+    app.hotkey_warning = "\n".join(failures)
     player.start()
     try:
         app.run()
