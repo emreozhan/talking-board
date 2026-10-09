@@ -1,33 +1,15 @@
 """Giriş noktası: ayarları okur, oynatıcıyı, kısayolu ve arayüzü başlatır."""
 
 import ctypes
-import json
 import os
 import sys
-from pathlib import Path
 
 from pynput import keyboard
 
+from . import config as cfg
 from .player import Player
 from .speech_queue import SpeechQueue
 from .ui import App
-
-ROOT = Path(__file__).resolve().parent.parent
-DEFAULTS = {
-    "hotkey": "<ctrl>+<alt>+<space>",
-    "speed": 1.0,
-    "sample_rate": 48000,
-    "max_chars": 300,
-    "use_lightning": False,
-}
-
-
-def load_config() -> dict:
-    config = dict(DEFAULTS)
-    path = ROOT / "config.json"
-    if path.exists():
-        config.update(json.loads(path.read_text(encoding="utf-8")))
-    return config
 
 
 def hotkey_label(hotkey: str) -> str:
@@ -57,13 +39,15 @@ def main():
         except (AttributeError, OSError):
             pass
 
-    config = load_config()
+    config = cfg.load()
+    voice = config["voice"]
     speech_queue = SpeechQueue()
-    player = Player(speech_queue, speed=config["speed"], sample_rate=config["sample_rate"],
-                    max_chars=config["max_chars"], use_lightning=config["use_lightning"])
-    app = App(speech_queue, player, hotkey_label(config["hotkey"]), ROOT / "state.json")
+    player = Player(speech_queue, speed=voice["speed"], sample_rate=voice["sample_rate"],
+                    max_chars=voice["max_chars"], use_lightning=voice["use_lightning"])
+    hotkey = config["hotkeys"]["add_clipboard"]
+    app = App(speech_queue, player, hotkey_label(hotkey), cfg.ROOT / "state.json")
 
-    hotkeys = listen_hotkey(config["hotkey"], lambda: app.events.put("clipboard"))
+    hotkeys = listen_hotkey(hotkey, lambda: app.events.put("clipboard"))
     player.start()
     try:
         app.run()

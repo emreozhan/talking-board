@@ -26,11 +26,11 @@ python -m venv .venv
 
 | Alan | Açıklama |
 | --- | --- |
-| `hotkey` | pynput biçiminde kısayol, ör. `<ctrl>+<alt>+<space>`. AltGr, Alt sayılır. |
-| `speed` | Okuma hızı, 0.25–4 |
-| `sample_rate` | 48000, 24000, 16000 veya 8000 |
-| `max_chars` | Modelin tek seferde okuduğu en uzun parça |
-| `use_lightning` | `torch.compile` ile hızlı yol; Windows'ta genelde Triton olmadığı için kapalı |
+| `hotkeys.add_clipboard` | pynput biçiminde kısayol, ör. `<ctrl>+<alt>+<space>`. AltGr, Alt sayılır. |
+| `voice.speed` | Okuma hızı, 0.25–4 |
+| `voice.sample_rate` | 48000, 24000, 16000 veya 8000 |
+| `voice.max_chars` | Modelin tek seferde okuduğu en uzun parça |
+| `voice.use_lightning` | `torch.compile` ile hızlı yol; Windows'ta genelde Triton olmadığı için kapalı |
 
 Hatalar `ema-tts.log` dosyasına yazılır.
 
