@@ -10,6 +10,9 @@ CONFIG_FILE = ROOT / "config.json"
 DEFAULTS = {
     "voice": {
         "speed": 1.0,
+        "volume": 100,
+        "seed": None,  # None: her okumada rastgele
+        "output_device": None,  # None: sistem varsayılanı
         "sample_rate": 48000,
         "max_chars": 300,
         "use_lightning": False,

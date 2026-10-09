@@ -1,6 +1,9 @@
 {
   "voice": {
     "speed": 1.0,
+    "volume": 100,
+    "seed": null,
+    "output_device": null,
     "sample_rate": 48000,
     "max_chars": 300,
     "use_lightning": false

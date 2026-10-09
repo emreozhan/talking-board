@@ -40,10 +40,8 @@ def main():
             pass
 
     config = cfg.load()
-    voice = config["voice"]
     speech_queue = SpeechQueue()
-    player = Player(speech_queue, speed=voice["speed"], sample_rate=voice["sample_rate"],
-                    max_chars=voice["max_chars"], use_lightning=voice["use_lightning"])
+    player = Player(speech_queue, config["voice"])
     hotkey = config["hotkeys"]["add_clipboard"]
     app = App(speech_queue, player, hotkey_label(hotkey), cfg.ROOT / "state.json")
 
