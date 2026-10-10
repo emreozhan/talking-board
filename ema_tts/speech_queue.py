@@ -8,6 +8,22 @@ from dataclasses import dataclass, field
 WAITING = "waiting"
 PLAYING = "playing"
 
+MAX_TEXT_CHARS = 20_000
+MAX_ITEMS = 100
+MAX_TOTAL_CHARS = 200_000
+
+
+class Rejected(Exception):
+    """The text was not queued because of a limit; the message says which."""
+
+
+class TooLong(Rejected):
+    pass
+
+
+class QueueFull(Rejected):
+    pass
+
 
 @dataclass
 class Item:
@@ -30,13 +46,19 @@ class SpeechQueue:
         self._cond.notify_all()
 
     def add(self, text: str, source: str = "") -> Item | None:
-        """Appends the text. Returns None if it is empty or already queued."""
+        """Appends the text. Returns None if it is empty or already queued; raises Rejected over a limit."""
         text = text.strip()
         if not text:
             return None
+        if len(text) > MAX_TEXT_CHARS:
+            raise TooLong(f"text is {len(text)} characters, the limit is {MAX_TEXT_CHARS}")
         with self._cond:
             if any(item.text == text for item in self._items):
                 return None
+            if len(self._items) >= MAX_ITEMS:
+                raise QueueFull(f"the queue already holds {MAX_ITEMS} items")
+            if sum(len(item.text) for item in self._items) + len(text) > MAX_TOTAL_CHARS:
+                raise QueueFull(f"the queue would exceed {MAX_TOTAL_CHARS} characters")
             item = Item(next(self._ids), text, source=source)
             self._items.append(item)
             self._changed()

@@ -50,6 +50,7 @@ def clean(text: str) -> str:
 
 def split(text: str, max_chars: int = 300) -> list[str]:
     """Splits the text at sentence boundaries into segments of at most max_chars."""
+    max_chars = max(max_chars, 1)
     pieces = []
     for sentence in _SENTENCE_END.split(text.strip()):
         while len(sentence) > max_chars:
@@ -57,7 +58,7 @@ def split(text: str, max_chars: int = 300) -> list[str]:
             if cut <= 0:
                 cut = sentence.rfind(" ", 0, max_chars)
             if cut <= 0:
-                cut = max_chars
+                cut = max_chars - 1  # no space to break at: cut hard, at most max_chars long
             pieces.append(sentence[: cut + 1].strip())
             sentence = sentence[cut + 1 :].strip()
         if sentence:
