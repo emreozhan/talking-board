@@ -38,26 +38,29 @@ class ServerTest(unittest.TestCase):
         self.assertEqual((status, body), (200, {"ok": True}))
 
     def test_speak_adds_to_queue(self):
+        # Turkish text checks UTF-8 handling
         status, body, headers = speak(self.port, {"text": "Merhaba dünya", "source": "claude"})
         self.assertEqual(status, 202)
         self.assertEqual(body, {"id": self.queue.snapshot()[0].id})
         self.assertEqual(self.texts(), ["Merhaba dünya"])
+        self.assertEqual(self.queue.snapshot()[0].source, "claude")
         self.assertNotIn("Access-Control-Allow-Origin", headers)
 
     def test_source_is_optional_and_charset_allowed(self):
-        status, _, _ = speak(self.port, {"text": "kaynaksız"}, "application/json; charset=utf-8")
+        status, _, _ = speak(self.port, {"text": "no source"}, "application/json; charset=utf-8")
         self.assertEqual(status, 202)
+        self.assertEqual(self.queue.snapshot()[0].source, "agent")  # never mistaken for the clipboard
 
     def test_duplicate_and_empty_conflict(self):
-        speak(self.port, {"text": "aynı"})
-        self.assertEqual(speak(self.port, {"text": " aynı "})[0], 409)
+        speak(self.port, {"text": "same"})
+        self.assertEqual(speak(self.port, {"text": " same "})[0], 409)
         status, body, _ = speak(self.port, {"text": "   "})
         self.assertEqual(status, 409)
         self.assertEqual(body["field"], "text")
-        self.assertEqual(self.texts(), ["aynı"])
+        self.assertEqual(self.texts(), ["same"])
 
     def test_bad_requests(self):
-        cases = [b"{bozuk", b"[1, 2]", json.dumps({"text": 5}).encode(), json.dumps({}).encode(),
+        cases = [b"{broken", b"[1, 2]", json.dumps({"text": 5}).encode(), json.dumps({}).encode(),
                  json.dumps({"text": "x", "source": 1}).encode(), "\xff".encode("latin-1")]
         for body in cases:
             with self.subTest(body=body):
@@ -84,7 +87,7 @@ class ServerTest(unittest.TestCase):
 
     def test_auto_read_off_ignores(self):
         self.auto_read = False
-        status, body, _ = speak(self.port, {"text": "okunmasın"})
+        status, body, _ = speak(self.port, {"text": "do not read"})
         self.assertEqual((status, body), (202, {"ignored": True}))
         self.assertEqual(self.texts(), [])
 

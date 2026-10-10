@@ -1,12 +1,12 @@
-"""Seslendirme kuyruğu. Kısayol, arayüz ve oynatıcı thread'leri arasında paylaşılır."""
+"""Speech queue shared by the hotkey, UI, server and player threads."""
 
 import itertools
 import threading
 import time
 from dataclasses import dataclass, field
 
-WAITING = "bekliyor"
-PLAYING = "okunuyor"
+WAITING = "waiting"
+PLAYING = "playing"
 
 
 @dataclass
@@ -15,6 +15,7 @@ class Item:
     text: str
     state: str = WAITING
     added: float = field(default_factory=time.time)
+    source: str = ""  # "" = clipboard; otherwise the agent name sent to /speak
 
 
 class SpeechQueue:
@@ -22,21 +23,21 @@ class SpeechQueue:
         self._items: list[Item] = []
         self._ids = itertools.count(1)
         self._cond = threading.Condition()
-        self.version = 0  # arayüz değişikliği bu sayaçtan anlar
+        self.version = 0  # the UI watches this counter for changes
 
     def _changed(self):
         self.version += 1
         self._cond.notify_all()
 
-    def add(self, text: str) -> Item | None:
-        """Metni sona ekler. Boşsa ya da kuyrukta zaten varsa None döner."""
+    def add(self, text: str, source: str = "") -> Item | None:
+        """Appends the text. Returns None if it is empty or already queued."""
         text = text.strip()
         if not text:
             return None
         with self._cond:
             if any(item.text == text for item in self._items):
                 return None
-            item = Item(next(self._ids), text)
+            item = Item(next(self._ids), text, source=source)
             self._items.append(item)
             self._changed()
             return item
@@ -57,10 +58,10 @@ class SpeechQueue:
 
     def snapshot(self) -> list[Item]:
         with self._cond:
-            return [Item(i.id, i.text, i.state, i.added) for i in self._items]
+            return [Item(i.id, i.text, i.state, i.added, i.source) for i in self._items]
 
     def take(self, timeout: float | None = None) -> Item | None:
-        """Sıradaki öğeyi okunuyor olarak işaretleyip döner; kuyruk boşsa bekler."""
+        """Marks the next item as playing and returns it; waits while the queue is empty."""
         with self._cond:
             if not self._cond.wait_for(lambda: self._items, timeout):
                 return None

@@ -1,84 +1,113 @@
 # ema-tts
 
-Panoya kopyaladığın metni bir kısayol tuşuyla kuyruğa ekleyip yerelde, internetsiz seslendiren küçük bir Windows aracı. Ses modeli [EMA Lightning](https://huggingface.co/canberkkkkkk/ema-lightning) (Türkçe, tek ses, Apache 2.0).
+A small Windows tool that reads text aloud locally, without internet. Copy text and press a hotkey, or let Claude Code send its replies; the text is queued and read in order. The voice model is [EMA Lightning](https://huggingface.co/canberkkkkkk/ema-lightning) (Turkish, single voice, Apache 2.0), so the text you queue should be Turkish.
 
-## Kullanım
+## Running
 
-1. `start.bat` ile başlat. Ekranın sağ altında yuvarlak bir logo çıkar (gri: model yükleniyor, koyu: hazır, mavi: okuyor, turuncu: duraklatıldı, kırmızı: hata).
-2. Metni kopyala, **Alt+Shift+1**'e bas. Metin kuyruğa eklenir ve sırayla okunur. Logonun halkası yeşil yanarsa eklendi, kırmızı yanarsa pano boştur ya da metin zaten kuyruktadır.
-3. Logoya tıkla: kuyruk paneli açılır. Her satırdaki ✕ o metni siler; okunmakta olanı silersen hemen susar. Panelde Duraklat/Devam ve Tümünü sil de var.
-4. Logoyu sürükleyerek taşıyabilirsin; yeri hatırlanır. Sağ tık menüsünden çıkış yapılır.
-5. Sağ tık menüsündeki **Ayarlar…** ya da paneldeki ⚙ ses ayarlarını açar. Değişiklikler hemen duyulur (hız, ses rengi, cihaz bir sonraki metinde; ses seviyesi anında). **Dene** örnek bir cümleyi kuyruğa eklemeden okur, **Kaydet** yalnızca `voice` bölümünü `config.json`'a yazar.
+From the project folder, without a console window, with logs written to `ema-tts.log`:
 
-Kısayollar (sol Alt + Shift + rakam, hepsi sol elle basılır):
+```powershell
+.\.venv\Scripts\pythonw.exe -c "import sys; sys.stdout = sys.stderr = open('ema-tts.log', 'w', encoding='utf-8', buffering=1); from ema_tts.app import main; main()"
+```
 
-| Kısayol | Eylem |
+The short form `.\.venv\Scripts\pythonw.exe -m ema_tts` also starts the app without a console, but `pythonw` discards `print` output, so errors are lost. To watch the log live, run it with a console instead:
+
+```powershell
+.\.venv\Scripts\python.exe -m ema_tts
+```
+
+Run only one copy at a time: a second copy shows its own bubble but cannot use the server port or the hotkeys. A local `start.bat` / `start.cmd` with the first command is handy; such scripts are git-ignored.
+
+## Usage
+
+1. Start the app. A round bubble appears near the bottom right of the screen. Its shape shows the state, so it works without relying on colour:
+
+   | Bubble | State |
+   | --- | --- |
+   | Spinning arc, dim bars | Loading the model |
+   | Navy, five resting bars | Ready |
+   | Saffron, moving bars, breathing halo | Speaking |
+   | Saffron ring, two bars | Paused |
+   | Red, "!" | Error (the panel shows the reason) |
+
+2. Copy text and press **Alt+Shift+1**. A green ring that grows outward means it was queued; a red ring with a shake means the clipboard was empty or the text is already queued. The badge shows how many items are waiting.
+3. Click the bubble to open the queue panel. Each row shows where the text came from (clipboard or the agent's name) and when; the item being read is highlighted. The ✕ on a row removes it; removing the current item stops it immediately. The panel also has Pause/Resume, Add from clipboard and Clear all. Esc closes it.
+4. Drag the bubble to move it; its position is remembered. Right-click it for the menu, including Quit.
+5. **Settings…** in the right-click menu, or ⚙ in the panel, opens the voice settings. Changes are heard right away (speed, voice colour and device from the next text; volume immediately). **Try** reads a sample sentence without queueing it, **Save** writes only the `voice` section to `config.json`.
+
+Hotkeys (left Alt + Shift + digit, all reachable with the left hand):
+
+| Hotkey | Action |
 | --- | --- |
-| Alt+Shift+1 | Panodaki metni kuyruğa ekle |
-| Alt+Shift+2 | Duraklat / devam et |
-| Alt+Shift+3 | Okunmakta olanı atla (kuyruktan siler) |
-| Alt+Shift+4 | Paneli aç / kapat |
-| Alt+Shift+5 | Kuyruğu temizle |
+| Alt+Shift+1 | Queue the clipboard text |
+| Alt+Shift+2 | Pause / resume |
+| Alt+Shift+3 | Skip the current item (removes it from the queue) |
+| Alt+Shift+4 | Open / close the panel |
+| Alt+Shift+5 | Clear the queue |
 
-Kısayollar Windows'a `RegisterHotKey` ile kaydedilir; bu yüzden başka bir programla çakışmazlar. Bir kısayolu başka bir program zaten kullanıyorsa uygulama yine açılır, panelin durum satırında ve `ema-tts.log`'da "Alt+Shift+1 başka bir program tarafından kullanılıyor (hotkeys.add_clipboard)" gibi bir uyarı çıkar. O zaman `config.json`'dan başka bir kısayol seç.
+Hotkeys are registered with Windows through `RegisterHotKey`, so they do not clash with other programs. If another program already uses one, the app still starts and the panel and `ema-tts.log` show a warning such as "Alt+Shift+1 is used by another program (hotkeys.add_clipboard)". Pick another hotkey in `config.json` then.
 
-Agent cevapları için markdown temizlenir: başlık, madde, kalın/italik işaretleri atılır, kod blokları "Kod bloğu" diye geçilir, URL'ler "bağlantı" diye okunur.
+Markdown is cleaned up before reading: headings, bullets and bold/italic marks are dropped, code blocks are read as "Kod bloğu" and URLs as "bağlantı" (Turkish, because that is what the model speaks).
 
-## Kurulum
+## Installation
 
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
 ```
 
-`requirements.txt` CUDA 12.8 torch'unu çeker (NVIDIA GPU için). Model ağırlıkları (~34 MB) ilk açılışta Hugging Face'ten indirilir. Model yalnızca ilk çalıştırmada bir kez ısınma için uzun sürer (~40 sn), sonrasında açılış birkaç saniyedir.
+`requirements.txt` pulls the CUDA 12.8 build of torch (for NVIDIA GPUs) and Pillow, which draws the anti-aliased bubble and the icon. The model weights (~34 MB) are downloaded from Hugging Face on first start. Only the very first start takes long (~40 s warm-up); later starts take a few seconds.
 
-## Ayarlar
+`assets/icon.ico` is generated from code; rebuild it after changing the palette with `python -m ema_tts.art`.
 
-`voice` bölümü Ayarlar penceresinden düzenlenir. Elle düzenlemek için `config.example.json` dosyasını `config.json` olarak kopyala:
+## Settings
 
-| Alan | Açıklama |
+The `voice` section is edited in the Settings window. To edit by hand, copy `config.example.json` to `config.json`:
+
+| Field | Description |
 | --- | --- |
-| `hotkeys.add_clipboard` | Panodakini kuyruğa ekler, varsayılan `<alt>+<shift>+1` |
-| `hotkeys.pause_resume` | Duraklatır / devam ettirir, varsayılan `<alt>+<shift>+2` |
-| `hotkeys.skip` | Okunmakta olanı atlar, varsayılan `<alt>+<shift>+3` |
-| `hotkeys.toggle_panel` | Paneli açar / kapatır, varsayılan `<alt>+<shift>+4` |
-| `hotkeys.clear` | Kuyruğu temizler, varsayılan `<alt>+<shift>+5` |
-| `voice.speed` | Okuma hızı. Pencerede 0.5–2 (0.05 adım), dosyada 0.25–4 |
-| `voice.volume` | Ses seviyesi, 0–100 (%). Çalarken de değişir |
-| `voice.seed` | `null`: her okumada rastgele tını ve tonlama. Sayı (0–2147483647): aynı metin her seferinde aynı okunur. Hazırlar: Pes `16`, Doğal `1`, Tiz `23` (perdeyi yaklaşık bir yarım ton kaydırır) |
-| `voice.output_device` | Çıkış cihazının adı; `null` sistem varsayılanı. Cihaz bulunamazsa varsayılana düşülür |
-| `voice.sample_rate` | 48000, 24000 veya 16000 (dosyada 8000 de geçer) |
-| `voice.max_chars` | Uzun metinlerin bölündüğü en uzun parça, 50–1000 karakter |
-| `voice.use_lightning` | `torch.compile` ile hızlı yol; Windows'ta genelde Triton olmadığı için kapalı. Yeniden başlatma gerekir |
-| `server.enabled` | Yerel `/speak` uç noktasını aç/kapat |
-| `server.port` | Uç noktanın portu (yalnızca `127.0.0.1`), varsayılan 47821 |
-| `server.auto_read` | Agent mesajları kuyruğa eklensin mi; sağ tık menüsündeki "Agent mesajlarını oku" ile de değişir |
+| `hotkeys.add_clipboard` | Queues the clipboard text, default `<alt>+<shift>+1` |
+| `hotkeys.pause_resume` | Pauses / resumes, default `<alt>+<shift>+2` |
+| `hotkeys.skip` | Skips the current item, default `<alt>+<shift>+3` |
+| `hotkeys.toggle_panel` | Opens / closes the panel, default `<alt>+<shift>+4` |
+| `hotkeys.clear` | Clears the queue, default `<alt>+<shift>+5` |
+| `voice.speed` | Reading speed. 0.5–2 in the window (0.05 steps), 0.25–4 in the file |
+| `voice.volume` | Volume, 0–100 (%). Also changes while speaking |
+| `voice.seed` | `null`: random timbre and intonation on every reading. A number (0–2147483647): the same text always sounds the same. Presets: Low `16`, Natural `1`, High `23` (shift the pitch by about a semitone) |
+| `voice.output_device` | Output device name; `null` is the system default. Falls back to the default if the device is missing |
+| `voice.sample_rate` | 48000, 24000 or 16000 (8000 also works in the file) |
+| `voice.max_chars` | Longest segment long texts are split into, 50–1000 characters |
+| `voice.use_lightning` | Fast path with `torch.compile`; usually off on Windows because Triton is missing. Needs a restart |
+| `server.enabled` | Turns the local `/speak` endpoint on or off |
+| `server.port` | Endpoint port (only on `127.0.0.1`), default 47821 |
+| `server.auto_read` | Whether agent messages are queued; also toggled by "Read agent messages" in the right-click menu |
 
-Kısayol biçimi: değiştiriciler `<ctrl>`, `<alt>`, `<shift>`, `<win>`; tuş olarak harf, rakam, `<f1>`–`<f24>`, `<space>` ve `<insert>`, `<delete>`, `<home>`, `<end>`, `<page_up>`, `<page_down>`, `<pause>`, `<scroll_lock>`, ok tuşları, medya tuşları (`<media_play_pause>` vb.); parçalar `+` ile birleşir, ör. `<ctrl>+<shift>+<f9>`. Boş dizge (`""`) o eylemi kapatır. Ctrl+Alt kombinasyonlarından kaçın: Türkçe Q klavyede AltGr, Ctrl+Alt sayılır ve @ € { } [ ] gibi karakterleri yazmayı engeller.
+Hotkey format: modifiers `<ctrl>`, `<alt>`, `<shift>`, `<win>`; as the key a letter, digit, `<f1>`–`<f24>`, `<space>`, `<insert>`, `<delete>`, `<home>`, `<end>`, `<page_up>`, `<page_down>`, `<pause>`, `<scroll_lock>`, the arrow keys or media keys (`<media_play_pause>` etc.); join parts with `+`, e.g. `<ctrl>+<shift>+<f9>`. An empty string (`""`) disables the action. Avoid Ctrl+Alt combinations: on the Turkish Q layout AltGr counts as Ctrl+Alt and they would block typing @ € { } [ ].
 
-Hatalar `ema-tts.log` dosyasına yazılır.
+## Reading agent replies automatically
 
-## Agent mesajlarını otomatik okuma
-
-Uygulama açıkken `127.0.0.1:47821` üzerinde küçük bir uç nokta dinler. Claude Code'un Stop hook'u her cevabın sonunda metni buraya yollar; metin kuyruğa eklenip okunur.
+While the app runs it listens on `127.0.0.1:47821`. Claude Code's Stop hook sends every reply there; the text is queued and read.
 
 ```powershell
-python hooks/install_claude_hook.py              # ~/.claude/settings.json'a Stop hook'unu ekler
-python hooks/install_claude_hook.py --uninstall  # kaldırır
+python hooks/install_claude_hook.py              # adds the Stop hook to ~/.claude/settings.json
+python hooks/install_claude_hook.py --uninstall  # removes it
 ```
 
-Kurulum mevcut ayarları korur, yazmadan önce `settings.json.bak-ema-tts` yedeği alır; tekrar çalıştırmak girdiyi çoğaltmaz. Hook uygulama kapalıyken ya da hata olduğunda sessizce çıkar, Claude'u bekletmez. Okumayı geçici olarak kapatmak için logonun sağ tık menüsünden "Agent mesajlarını oku" işaretini kaldır. Hook portu `config.json`'dan okur; `EMA_TTS_PORT` ortam değişkeniyle geçersiz kılınabilir.
+The installer keeps your existing settings and writes a `settings.json.bak-ema-tts` backup first; running it again does not duplicate the entry. The hook exits quietly when the app is closed or anything fails, so Claude never waits on it. To pause reading for a while, untick "Read agent messages" in the bubble's right-click menu. The hook reads the port from `config.json`; the `EMA_TTS_PORT` environment variable overrides it.
 
-Başka araçlar da metin yollayabilir:
+Other tools can send text too; `source` (optional) is shown on the queue row:
 
 ```powershell
-Invoke-RestMethod -Method Post -Uri http://127.0.0.1:47821/speak -ContentType 'application/json' -Body '{"text": "Merhaba"}'
+Invoke-RestMethod -Method Post -Uri http://127.0.0.1:47821/speak -ContentType 'application/json' -Body '{"text": "Merhaba", "source": "codex"}'
 ```
 
-Yanıtlar: `202 {"id": n}` eklendi, `202 {"ignored": true}` okuma kapalı, `409` boş ya da zaten kuyrukta, `400` hatalı JSON, `403` tarayıcı/yabancı host, `413` gövde 256 KB'tan büyük, `415` Content-Type `application/json` değil.
+Responses: `202 {"id": n}` queued, `202 {"ignored": true}` reading is off, `409` empty or already queued, `400` invalid JSON, `403` browser or foreign host, `413` body larger than 256 KB, `415` Content-Type is not `application/json`. Error bodies look like `{"error": "...", "field": "text"}`.
 
-## Test
+## Design
+
+"Night broadcast": deep navy surfaces with one saffron signal colour, like an on-air lamp that stays quiet until it has something to say. Bahnschrift for titles and labels, Segoe UI Variable for reading text, Cascadia Mono for keys and numbers, Segoe Fluent Icons for glyphs. All colours, fonts, radii and spacing live in `ema_tts/theme.py`; the bubble and other anti-aliased shapes are drawn in `ema_tts/art.py`.
+
+## Tests
 
 ```powershell
 .\.venv\Scripts\python.exe -m unittest discover -s tests

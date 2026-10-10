@@ -1,9 +1,9 @@
-"""ema-tts Stop hook'unu Claude Code ayarlarına ekler ya da kaldırır (idempotent).
+"""Adds or removes the ema-tts Stop hook in the Claude Code settings (idempotent).
 
-Kullanım:
-    python hooks/install_claude_hook.py [--settings YOL] [--uninstall]
+Usage:
+    python hooks/install_claude_hook.py [--settings PATH] [--uninstall]
 
-Hook exec biçiminde (command + args) yazılır: kabuk yoktur, boşluklu yollar tırnak gerektirmez.
+The hook is written in exec form (command + args): no shell, paths with spaces need no quoting.
 """
 
 import argparse
@@ -44,14 +44,14 @@ def _without_ours(groups: list) -> list:
 
 
 def apply(settings: dict, install: bool, entry: dict | None = None) -> dict:
-    """Ayarların kopyasını döner; bizim girdimiz kaldırılır, istenirse tek kopya olarak eklenir."""
+    """Returns a copy of the settings with our entry removed and, if requested, added once."""
     settings = json.loads(json.dumps(settings))
     hooks = settings.get("hooks", {})
     if not isinstance(hooks, dict):
-        raise ValueError("hooks alanı bir JSON nesnesi olmalı")
+        raise ValueError("hooks must be a JSON object")
     stop = hooks.get("Stop", [])
     if not isinstance(stop, list):
-        raise ValueError("hooks.Stop alanı bir liste olmalı")
+        raise ValueError("hooks.Stop must be a list")
     stop = _without_ours(stop)
     if install:
         stop.append({"hooks": [entry or handler()]})
@@ -71,7 +71,7 @@ def read(path: Path) -> dict:
         return {}
     data = json.loads(path.read_text(encoding="utf-8-sig"))
     if not isinstance(data, dict):
-        raise ValueError("kök bir JSON nesnesi olmalı")
+        raise ValueError("the root must be a JSON object")
     return data
 
 
@@ -85,28 +85,28 @@ def write(path: Path, settings: dict):
 
 
 def main(argv=None) -> int:
-    parser = argparse.ArgumentParser(description="ema-tts Stop hook'unu Claude Code ayarlarına ekler.")
-    parser.add_argument("--settings", type=Path, default=SETTINGS_FILE, help="settings.json yolu")
-    parser.add_argument("--uninstall", action="store_true", help="hook'u kaldır")
-    parser.add_argument("--python", default=PYTHON, help="hook'u çalıştıracak python.exe")
-    parser.add_argument("--hook", default=HOOK, help="claude_stop_hook.py yolu")
+    parser = argparse.ArgumentParser(description="Adds the ema-tts Stop hook to the Claude Code settings.")
+    parser.add_argument("--settings", type=Path, default=SETTINGS_FILE, help="path to settings.json")
+    parser.add_argument("--uninstall", action="store_true", help="remove the hook")
+    parser.add_argument("--python", default=PYTHON, help="python.exe that runs the hook")
+    parser.add_argument("--hook", default=HOOK, help="path to claude_stop_hook.py")
     args = parser.parse_args(argv)
 
     try:
         current = read(args.settings)
         updated = apply(current, not args.uninstall, handler(args.python, args.hook))
     except (OSError, ValueError) as exc:
-        print(f"{args.settings} okunamadı: {exc}", file=sys.stderr)
+        print(f"could not read {args.settings}: {exc}", file=sys.stderr)
         return 1
     if not args.uninstall:
         for path in (args.python, args.hook):
             if not Path(path).exists():
-                print(f"uyarı: {path} bulunamadı; hook bu yol oluşana kadar çalışmaz", file=sys.stderr)
+                print(f"warning: {path} not found; the hook will not run until it exists", file=sys.stderr)
     if updated == current:
-        print("değişiklik yok: " + ("hook zaten kaldırılmış" if args.uninstall else "hook zaten kurulu"))
+        print("no change: " + ("hook already removed" if args.uninstall else "hook already installed"))
         return 0
     write(args.settings, updated)
-    print(("hook kaldırıldı: " if args.uninstall else "hook kuruldu: ") + str(args.settings))
+    print(("hook removed: " if args.uninstall else "hook installed: ") + str(args.settings))
     return 0
 
 

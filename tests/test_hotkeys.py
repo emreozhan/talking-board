@@ -10,7 +10,7 @@ from ema_tts import config as cfg
 from ema_tts import hotkeys as hk
 
 WINDOWS = sys.platform == "win32"
-# Pratikte hiçbir klavyede olmayan F21–F24 + tüm değiştiriciler: kullanıcıyı etkilemez.
+# F21–F24 with every modifier exists on practically no keyboard, so the user is not affected.
 CANDIDATES = [f"<ctrl>+<alt>+<shift>+<win>+<f{n}>" for n in (24, 23, 22, 21)]
 
 
@@ -20,7 +20,7 @@ def free_hotkey() -> str:
         if hk.user32.RegisterHotKey(None, 0xBEEF, combo.modifiers | hk.MOD_NOREPEAT, combo.vk):
             hk.user32.UnregisterHotKey(None, 0xBEEF)
             return hotkey
-    raise unittest.SkipTest("serbest test kısayolu bulunamadı")
+    raise unittest.SkipTest("no free test hotkey found")
 
 
 class ParseTest(unittest.TestCase):
@@ -44,13 +44,13 @@ class ParseTest(unittest.TestCase):
 
     def test_invalid(self):
         cases = {
-            "": "geçerli bir kısayol değil",
-            "<ctrl>++a": "geçerli bir kısayol değil",
-            "<ctrl>+<foo>": "bilinmeyen tuş: foo",
-            "<ctrl>+ş": "bilinmeyen tuş: ş",
-            "<f25>": "bilinmeyen tuş: f25",
-            "<ctrl>+<shift>": "tuş yok",
-            "<ctrl>+a+b": "birden fazla tuş",
+            "": "is not a valid hotkey",
+            "<ctrl>++a": "is not a valid hotkey",
+            "<ctrl>+<foo>": "unknown key: foo",
+            "<ctrl>+ş": "unknown key: ş",  # non-ASCII letters are rejected
+            "<f25>": "unknown key: f25",
+            "<ctrl>+<shift>": "has no key",
+            "<ctrl>+a+b": "more than one key",
         }
         for text, message in cases.items():
             with self.subTest(text=text):
@@ -67,7 +67,7 @@ class ParseTest(unittest.TestCase):
         self.assertFalse(any(c.modifiers & ctrl_alt == ctrl_alt for c in combos))
 
 
-@unittest.skipUnless(WINDOWS, "RegisterHotKey yalnızca Windows'ta")
+@unittest.skipUnless(WINDOWS, "RegisterHotKey is Windows only")
 class RegisterTest(unittest.TestCase):
     def setUp(self):
         self.hotkey = free_hotkey()
@@ -88,7 +88,7 @@ class RegisterTest(unittest.TestCase):
         self.assertIn("a", thread.ids)
         thread.stop()
         self.assertFalse(thread.is_alive())
-        # kayıt kaldırıldıysa aynı kombinasyon yeniden kaydedilebilir
+        # once unregistered, the same combination can be registered again
         again, failures = self.start({"a": (self.hotkey, lambda: None)})
         self.assertEqual(failures, {})
 
@@ -97,7 +97,7 @@ class RegisterTest(unittest.TestCase):
         self.assertEqual(failures, {})
         second, failures = self.start({"b": (self.hotkey, lambda: None)})
         self.assertEqual(list(failures), ["b"])
-        self.assertIn("başka bir program tarafından kullanılıyor", failures["b"])
+        self.assertIn("is used by another program", failures["b"])
         self.assertIn(hk.label(self.hotkey), failures["b"])
         self.assertNotIn("b", second.ids)
         self.assertTrue(second.is_alive())
@@ -109,8 +109,8 @@ class RegisterTest(unittest.TestCase):
             "dup": (self.hotkey.upper(), lambda: None),
         })
         self.assertEqual(set(failures), {"bad", "dup"})
-        self.assertIn("bilinmeyen tuş", failures["bad"])
-        self.assertIn("başka bir eylemde de tanımlı (ok)", failures["dup"])
+        self.assertIn("unknown key", failures["bad"])
+        self.assertIn("is also assigned to another action (ok)", failures["dup"])
         self.assertEqual(list(thread.ids), ["ok"])
 
     def test_clean_shutdown(self):
@@ -118,13 +118,13 @@ class RegisterTest(unittest.TestCase):
         self.assertTrue(thread.is_alive())
         thread.stop(timeout=2)
         self.assertFalse(thread.is_alive())
-        thread.stop()  # ikinci kez durdurmak sorun değil
-        hk.Hotkeys({}).stop()  # hiç başlamamış thread de
+        thread.stop()  # stopping twice is fine
+        hk.Hotkeys({}).stop()  # so is a thread that never started
 
     def test_callback_on_wm_hotkey(self):
         called = threading.Event()
         thread, _ = self.start({"a": (self.hotkey, called.set), "b": ("", lambda: None)})
-        # gerçek tuş basmadan: thread'e sahte WM_HOTKEY gönder
+        # without pressing a key: post a fake WM_HOTKEY to the thread
         self.assertTrue(hk.user32.PostThreadMessageW(thread.native_id, hk.WM_HOTKEY, thread.ids["a"], 0),
                         ctypes.get_last_error())
         self.assertTrue(called.wait(2))
@@ -134,14 +134,14 @@ class RegisterTest(unittest.TestCase):
 
         def boom():
             called.set()
-            raise RuntimeError("deneme")
+            raise RuntimeError("test")
 
         thread, _ = self.start({"a": (self.hotkey, boom)})
         with contextlib.redirect_stderr(io.StringIO()) as log:
             hk.user32.PostThreadMessageW(thread.native_id, hk.WM_HOTKEY, thread.ids["a"], 0)
             self.assertTrue(called.wait(2))
             thread.join(0.2)
-        self.assertIn("RuntimeError: deneme", log.getvalue())
+        self.assertIn("RuntimeError: test", log.getvalue())
         self.assertTrue(thread.is_alive())
 
     def test_app_start_hotkeys(self):
@@ -151,15 +151,15 @@ class RegisterTest(unittest.TestCase):
         with contextlib.redirect_stdout(io.StringIO()) as log:
             thread, messages = app.start_hotkeys(
                 {"add_clipboard": self.hotkey, "skip": "<ctrl>+<foo>", "clear": ""}, events)
-        self.assertIn("kısayol kaydedilemedi: ", log.getvalue())
+        self.assertIn("hotkey not registered: ", log.getvalue())
         self.threads.append(thread)
         self.assertEqual(list(thread.ids), ["add_clipboard"])
         self.assertEqual(len(messages), 1)
         self.assertIn("(hotkeys.skip)", messages[0])
         hk.user32.PostThreadMessageW(thread.native_id, hk.WM_HOTKEY, thread.ids["add_clipboard"], 0)
         self.assertEqual(events.get(timeout=2), "clipboard")
-        self.assertEqual(app.hotkey_label(""), "kapalı")
-        self.assertEqual(app.hotkey_label("<foo>"), "geçersiz")
+        self.assertEqual(app.hotkey_label(""), "off")
+        self.assertEqual(app.hotkey_label("<foo>"), "invalid")
         self.assertEqual(app.hotkey_label("<alt>+<shift>+1"), "Alt+Shift+1")
 
 

@@ -1,7 +1,7 @@
-"""Claude Code Stop hook'u: agent'ın son cevabını ema-tts'in /speak uç noktasına yollar.
+"""Claude Code Stop hook: sends the agent's last reply to the ema-tts /speak endpoint.
 
-Yalnız stdlib kullanır. Ne olursa olsun exit 0 verir ve stdout'a yazmaz; Claude'u asla bloklamaz.
-Port sırası: EMA_TTS_PORT ortam değişkeni, config.json'daki server.port, varsayılan 47821.
+Uses only the stdlib. Always exits 0 and never writes to stdout; it never blocks Claude.
+Port lookup order: EMA_TTS_PORT environment variable, server.port in config.json, default 47821.
 """
 
 import http.client
@@ -36,7 +36,7 @@ def _texts(content) -> list[str]:
 
 
 def _is_user_prompt(entry: dict) -> bool:
-    """Gerçek kullanıcı mesajı mı? tool_result taşıyan 'user' kayıtları sayılmaz."""
+    """Is this a real user prompt? 'user' entries carrying tool_result do not count."""
     if entry.get("type") != "user" or entry.get("isMeta"):
         return False
     content = (entry.get("message") or {}).get("content")
@@ -47,7 +47,7 @@ def _is_user_prompt(entry: dict) -> bool:
 
 
 def from_transcript(path: str) -> str:
-    """Son kullanıcı mesajından sonraki asistan metin bloklarını birleştirir."""
+    """Joins the assistant text blocks after the last user prompt."""
     parts: list[str] = []
     with open(path, encoding="utf-8") as lines:
         for line in lines:

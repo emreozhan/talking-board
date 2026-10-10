@@ -5,6 +5,7 @@ from ema_tts import textprep
 from ema_tts.speech_queue import PLAYING, SpeechQueue
 
 
+# Sample texts are Turkish: the TTS model reads only Turkish, and textprep inserts Turkish words.
 class CleanTest(unittest.TestCase):
     def test_strips_markdown_and_skips_code(self):
         text = (
@@ -43,26 +44,35 @@ class SplitTest(unittest.TestCase):
 class QueueTest(unittest.TestCase):
     def test_add_rejects_empty_and_duplicates(self):
         q = SpeechQueue()
-        self.assertIsNotNone(q.add("merhaba"))
-        self.assertIsNone(q.add("  merhaba "))
+        self.assertIsNotNone(q.add("hello"))
+        self.assertIsNone(q.add("  hello "))
         self.assertIsNone(q.add("   "))
         self.assertEqual(len(q.snapshot()), 1)
 
     def test_take_marks_playing_and_remove_cancels(self):
         q = SpeechQueue()
-        first = q.add("bir")
-        q.add("iki")
+        first = q.add("one")
+        q.add("two")
         taken = q.take(timeout=0)
         self.assertEqual(taken.id, first.id)
         self.assertEqual(q.snapshot()[0].state, PLAYING)
         q.remove(first.id)
         self.assertFalse(q.contains(first.id))
-        self.assertEqual([i.text for i in q.snapshot()], ["iki"])
+        self.assertEqual([i.text for i in q.snapshot()], ["two"])
+
+    def test_source_defaults_to_clipboard_and_survives_snapshot(self):
+        q = SpeechQueue()
+        q.add("from the clipboard")
+        q.add("from an agent", source="claude")
+        self.assertEqual([(i.text, i.source) for i in q.snapshot()],
+                         [("from the clipboard", ""), ("from an agent", "claude")])
+        q.take(timeout=0)
+        self.assertEqual(q.snapshot()[0].source, "")
 
     def test_take_waits_for_add(self):
         q = SpeechQueue()
-        threading.Timer(0.05, q.add, args=("geç",)).start()
-        self.assertEqual(q.take(timeout=2).text, "geç")
+        threading.Timer(0.05, q.add, args=("late",)).start()
+        self.assertEqual(q.take(timeout=2).text, "late")
         self.assertIsNone(SpeechQueue().take(timeout=0.01))
 
 

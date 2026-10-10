@@ -15,10 +15,10 @@ from ema_tts import settings_window as sw
 from ema_tts.speech_queue import SpeechQueue
 
 DEVICES = [
-    {"name": "Mikrofon", "hostapi": 0, "max_output_channels": 0},
-    {"name": "Hoparlör", "hostapi": 0, "max_output_channels": 2},
-    {"name": "Kulaklık", "hostapi": 1, "max_output_channels": 2},
-    {"name": "Hoparlör", "hostapi": 1, "max_output_channels": 2},
+    {"name": "Microphone", "hostapi": 0, "max_output_channels": 0},
+    {"name": "Speakers", "hostapi": 0, "max_output_channels": 2},
+    {"name": "Headphones", "hostapi": 1, "max_output_channels": 2},
+    {"name": "Speakers", "hostapi": 1, "max_output_channels": 2},
 ]
 
 
@@ -27,7 +27,7 @@ class PortAudioError(Exception):
 
 
 class FakeStream:
-    """sd.OutputStream yerine: hoparlöre gitmez, yazılanları saklar."""
+    """Stands in for sd.OutputStream: plays nothing, keeps what was written."""
 
     opened: list["FakeStream"] = []
     on_write = None
@@ -35,7 +35,7 @@ class FakeStream:
 
     def __init__(self, samplerate, channels, dtype, device=None):
         if device is not None and device in FakeStream.fail_devices:
-            raise PortAudioError("açılamadı")
+            raise PortAudioError("could not open")
         self.samplerate, self.device = samplerate, device
         self.writes: list[np.ndarray] = []
         self.closed = False
@@ -87,15 +87,15 @@ class SaveVoiceTest(unittest.TestCase):
                 "extra": [1, 2],
             }
             path.write_text(json.dumps(user), encoding="utf-8")
-            sw.save_voice({"speed": 1.5, "volume": 40, "seed": 16, "output_device": "Hoparlör"}, path)
+            sw.save_voice({"speed": 1.5, "volume": 40, "seed": 16, "output_device": "Speakers"}, path)
             saved = json.loads(path.read_text(encoding="utf-8"))
 
         self.assertEqual(saved["hotkeys"]["add_clipboard"], "<f9>")
-        self.assertEqual(saved["server"], {"port": 5000})  # varsayılana eşit değerler yazılmaz
+        self.assertEqual(saved["server"], {"port": 5000})  # values equal to the defaults are not written
         self.assertEqual(saved["extra"], [1, 2])
         voice = saved["voice"]
         self.assertEqual((voice["speed"], voice["volume"], voice["seed"], voice["output_device"]),
-                         (1.5, 40, 16, "Hoparlör"))
+                         (1.5, 40, 16, "Speakers"))
         self.assertEqual(voice["max_chars"], 200)
         self.assertEqual(set(voice), {"speed", "volume", "seed", "output_device", "max_chars"})
 
@@ -109,13 +109,13 @@ class SaveVoiceTest(unittest.TestCase):
 class FormParseTest(unittest.TestCase):
     def test_seed_choices(self):
         self.assertIsNone(sw.parse_seed(sw.RANDOM, "123"))
-        self.assertEqual(sw.parse_seed("Pes", ""), sw.SEED_PRESETS["Pes"])
+        self.assertEqual(sw.parse_seed("Low", ""), sw.SEED_PRESETS["Low"])
         self.assertEqual(sw.parse_seed(sw.CUSTOM, " 42 "), 42)
         for bad in ("", "abc", "-1", str(sw.MAX_SEED + 1)):
             with self.assertRaisesRegex(ValueError, "^voice.seed:"):
                 sw.parse_seed(sw.CUSTOM, bad)
         self.assertEqual(sw.seed_choice(None), (sw.RANDOM, ""))
-        self.assertEqual(sw.seed_choice(23), ("Tiz", "23"))
+        self.assertEqual(sw.seed_choice(23), ("High", "23"))
         self.assertEqual(sw.seed_choice(99), (sw.CUSTOM, "99"))
 
     def test_max_chars(self):
@@ -137,14 +137,14 @@ class VolumeTest(unittest.TestCase):
 class OutputDeviceTest(FakeAudioTest):
     def test_lookup_and_fallback(self):
         self.assertIsNone(pl.find_output_device(None))
-        self.assertEqual(pl.find_output_device("Hoparlör"), 1)  # varsayılan sürücüdeki önce
-        self.assertEqual(pl.find_output_device("Kulaklık"), 2)
+        self.assertEqual(pl.find_output_device("Speakers"), 1)  # the default host API comes first
+        self.assertEqual(pl.find_output_device("Headphones"), 2)
         with mock.patch("builtins.print"):
-            self.assertIsNone(pl.find_output_device("Çıkarılmış cihaz"))
-        self.assertEqual(pl.output_devices(), ["Hoparlör"])
+            self.assertIsNone(pl.find_output_device("Unplugged device"))
+        self.assertEqual(pl.output_devices(), ["Speakers"])
 
     def test_unknown_device_plays_on_default(self):
-        player = pl.Player(SpeechQueue(), {"output_device": "Çıkarılmış cihaz"})
+        player = pl.Player(SpeechQueue(), {"output_device": "Unplugged device"})
         player.tts = FakeTTS()
         with mock.patch("builtins.print"):
             player._speak("merhaba", lambda: True)
@@ -153,7 +153,7 @@ class OutputDeviceTest(FakeAudioTest):
 
     def test_device_that_fails_to_open_falls_back(self):
         FakeStream.fail_devices = (1,)
-        player = pl.Player(SpeechQueue(), {"output_device": "Hoparlör"})
+        player = pl.Player(SpeechQueue(), {"output_device": "Speakers"})
         player.tts = FakeTTS()
         with mock.patch("builtins.print"):
             player._speak("merhaba", lambda: True)
@@ -168,7 +168,7 @@ class LiveSettingsTest(FakeAudioTest):
             if condition():
                 return
             time.sleep(0.01)
-        self.fail("zaman aşımı")
+        self.fail("timed out")
 
     def test_next_item_uses_updated_settings(self):
         queue = SpeechQueue()
@@ -179,7 +179,7 @@ class LiveSettingsTest(FakeAudioTest):
 
         queue.add("birinci")
         self.wait_for(lambda: len(FakeStream.opened) == 1 and FakeStream.opened[0].closed and not queue.snapshot())
-        player.update({"speed": 1.5, "seed": 16, "sample_rate": 24000, "volume": 50, "output_device": "Kulaklık"})
+        player.update({"speed": 1.5, "seed": 16, "sample_rate": 24000, "volume": 50, "output_device": "Headphones"})
         queue.add("ikinci")
         self.wait_for(lambda: len(FakeStream.opened) == 2 and FakeStream.opened[1].closed and not queue.snapshot())
 
@@ -193,7 +193,7 @@ class LiveSettingsTest(FakeAudioTest):
 
     def test_volume_changes_while_speaking(self):
         player = pl.Player(SpeechQueue(), {"volume": 100})
-        player.tts = FakeTTS(seconds=0.25)  # 0.1 sn'lik dilimler: 3 yazım
+        player.tts = FakeTTS(seconds=0.25)  # 0.1 s slices: 3 writes
         FakeStream.on_write = lambda stream: player.update({"volume": 50})
         player._speak("merhaba", lambda: True)
         peaks = [float(np.max(w)) for w in FakeStream.opened[0].writes]
