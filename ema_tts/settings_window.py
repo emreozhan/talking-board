@@ -319,6 +319,7 @@ class SettingsWindow:
             return None
 
         voice = self._read()
+        self.player.set_speed(voice["speed"])  # heard while a text is being read, not only from the next one
         self.player.update(voice)
         self._status("You have unsaved changes." if voice != self._saved_view() else "", MUTED)
         return voice
@@ -330,6 +331,15 @@ class SettingsWindow:
         icon = {ERROR_FG: theme.ICON_WARNING, OK_FG: theme.ICON_OK}.get(color, theme.ICON_INFO if text else "")
         self.status_icon.configure(text=icon, fg=color)
         self.status.configure(text=text, fg=color)
+
+    def show_speed(self, value: float, saved: bool = False):
+        """Follows a speed change made with the mouse wheel; saved=True once it is in config.json."""
+        if saved:
+            self.saved = {**self.saved, "speed": value}
+        if abs(float(self.speed.get()) - value) > 1e-9:
+            self.speed.set(value)  # the trace refreshes the label and the status
+        elif saved:
+            self._changed()
 
     # ---------- actions ----------
     def try_voice(self):
