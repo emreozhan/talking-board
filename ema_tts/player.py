@@ -43,17 +43,21 @@ def output_devices() -> list[str]:
     return names
 
 
+class DeviceError(Exception):
+    """The chosen output device is missing or cannot be opened. Never replaced by the system default:
+    text meant for headphones must not end up on the speakers."""
+
+
 def find_output_device(name: str | None) -> int | None:
-    """Maps a device name to its index; None (system default) if the name is empty or missing."""
+    """Maps a device name to its index; None (system default) only if no device is chosen."""
     if not name:
         return None
     try:
         return next(i for i, device_name, _ in _outputs() if device_name == name)
     except StopIteration:
-        print(f"output device not found: {name!r}, using the system default")
-    except Exception:
-        traceback.print_exc()
-    return None
+        raise DeviceError(f"Output device '{name}' not found") from None
+    except Exception as exc:
+        raise DeviceError(f"Output devices could not be listed ({exc})") from exc
 
 
 class Player(threading.Thread):
@@ -63,7 +67,8 @@ class Player(threading.Thread):
         self.voice = {**cfg.DEFAULTS["voice"], **(voice or {})}  # only ever replaced as a whole
         self.lightning = bool(self.voice["use_lightning"])  # value at load time; changing it needs a restart
         self.status = LOADING
-        self.error = ""
+        self.error = ""  # why the model failed to load
+        self.speech_error = ""  # why the last reading failed; reading stays paused until Resume
         self._resume = threading.Event()
         self._resume.set()
         self._lock = threading.Lock()
@@ -75,10 +80,20 @@ class Player(threading.Thread):
         return not self._resume.is_set()
 
     def toggle_pause(self):
-        if self.paused:
-            self._resume.set()
-        else:
+        """Resume also clears a reading error, so the failed item is tried again."""
+        with self._lock:
+            if self.paused:
+                if self.speech_error:
+                    self.speech_error, self.status = "", READY
+                self._resume.set()
+            else:
+                self._resume.clear()
+
+    def _fail(self, message: str):
+        with self._lock:
             self._resume.clear()
+            self.speech_error, self.status = f"{message} — reading paused", ERROR
+        print(self.speech_error)
 
     def update(self, voice: dict):
         """New voice settings apply from the next item; volume applies immediately."""
@@ -116,10 +131,8 @@ class Player(threading.Thread):
             item = self.queue.take(timeout=0.2)
             if item is None:
                 continue
-            try:
-                self._play(item.text, lambda: self.queue.contains(item.id))
-            finally:
-                self.queue.finish(item.id)
+            if self._play(item.text, lambda: self.queue.contains(item.id)):
+                self.queue.finish(item.id)  # a failed item stays first in the queue for Resume
 
     def _load(self):
         from ema_lightning import EMA
@@ -136,24 +149,29 @@ class Player(threading.Thread):
             pass
         return tts
 
-    def _play(self, text: str, alive, pausable: bool = True):
+    def _play(self, text: str, alive, pausable: bool = True) -> bool:
+        """Reads the text; on failure pauses reading and keeps the reason in speech_error."""
         self.status = SPEAKING
         try:
             self._speak(text, alive, pausable)
-        except Exception:
+        except DeviceError as exc:
+            self._fail(str(exc))
+            return False
+        except Exception as exc:
             traceback.print_exc()
-        finally:
-            self.status = READY
+            self._fail(f"Speech error: {(str(exc).strip().splitlines() or [type(exc).__name__])[0]}")
+            return False
+        self.status = READY
+        return True
 
     def _open_stream(self, sample_rate: int, device_name: str | None):
         device = find_output_device(device_name)
         try:
             return sd.OutputStream(samplerate=sample_rate, channels=1, dtype="float32", device=device)
-        except sd.PortAudioError:
+        except sd.PortAudioError as exc:
             if device is None:
                 raise
-            print(f"could not open {device_name!r}, using the system default")
-            return sd.OutputStream(samplerate=sample_rate, channels=1, dtype="float32")
+            raise DeviceError(f"Output device '{device_name}' could not be opened ({exc})") from exc
 
     def _speak(self, text: str, alive, pausable: bool = True):
         voice = self.voice  # fixed for the item; volume is re-read on every slice
@@ -166,7 +184,8 @@ class Player(threading.Thread):
                     for start in range(0, len(chunk), step):
                         if pausable and not self._resume.is_set():
                             self.status = PAUSED
-                            self._resume.wait()
+                            while not self._resume.wait(SLICE_SECONDS) and alive():
+                                pass  # removing the paused item ends it without waiting for Resume
                             self.status = SPEAKING
                         if not alive():
                             out.abort()
