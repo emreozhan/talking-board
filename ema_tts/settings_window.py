@@ -13,8 +13,8 @@ from .widgets import Button, Dropdown, Slider, Toggle
 SAMPLE_TEXT = "Merhaba! Bu, seçtiğin ayarlarla yapılmış kısa bir deneme okumasıdır."
 SPEED_MIN, SPEED_MAX, SPEED_STEP = 0.5, 2.0, 0.05
 SAMPLE_RATES = (48000, 24000, 16000)
-MAX_CHARS_MIN, MAX_CHARS_MAX, MAX_CHARS_STEP = 50, 1000, 10
-MAX_SEED = 2**31 - 1
+(MAX_CHARS_MIN, MAX_CHARS_MAX), MAX_CHARS_STEP = cfg.MAX_CHARS_RANGE, 10
+MAX_SEED = cfg.MAX_SEED
 RANDOM = "Random"
 CUSTOM = "Custom number"
 # Measured: the seed shifts the pitch regardless of the sentence (16 ≈ -1.2, 1 ≈ 0, 23 ≈ +0.8 semitones)
@@ -28,11 +28,7 @@ LABEL_WIDTH = 116
 
 def save_voice(voice: dict, path: Path | None = None) -> dict:
     """Changes only the voice section of config.json; other sections stay as they are."""
-    path = path or cfg.CONFIG_FILE
-    config = cfg.load(path)
-    config["voice"] = {**config["voice"], **voice}
-    cfg.save(config, path)
-    return config
+    return cfg.update("voice", voice, path or cfg.CONFIG_FILE)
 
 
 def seed_choice(seed) -> tuple[str, str]:
@@ -96,7 +92,7 @@ class SettingsWindow:
 
         self.top = tk.Toplevel(app.root, bg=theme.NIGHT)
         self.top.withdraw()
-        self.top.title("EMA TTS · Voice settings")
+        self.top.title("Talking Board · Voice settings")
         self.top.resizable(False, False)
         self.top.attributes("-topmost", True)
         self.top.protocol("WM_DELETE_WINDOW", self.close)
@@ -133,6 +129,8 @@ class SettingsWindow:
         pad = px(theme.S5)
         tk.Label(self.top, text="Voice settings", bg=bg, fg=theme.PAPER, font=self.font(14, family=theme.DISPLAY),
                  anchor="w").pack(fill="x", padx=pad, pady=(px(theme.S4), 0))
+        tk.Label(self.top, text="AI-generated speech · EMA Lightning", bg=bg, fg=theme.MUTED,
+                 font=self.font(8, family=theme.LABEL), anchor="w").pack(fill="x", padx=pad)
         tk.Label(self.top, text="Changes are heard right away; press Save to keep them.",
                  bg=bg, fg=theme.MUTED, font=self.font(9), anchor="w").pack(fill="x", padx=pad, pady=(px(2), 0))
 
@@ -158,7 +156,8 @@ class SettingsWindow:
 
         self._section(form, "Output")
         self.device_menu = Dropdown(form, self.device, [DEFAULT_DEVICE], px=px, width=280)
-        self._field(form, "Output device", self.device_menu)
+        self._field(form, "Output device", self.device_menu,
+                    hint="If the chosen device goes missing, reading pauses instead of switching to the speakers.")
         self.device_note = tk.Label(form, bg=bg, fg=ERROR_FG, font=self.font(8), anchor="w", justify="left",
                                     wraplength=px(300))
         self.device_note.grid(row=self._row, column=1, columnspan=2, sticky="w", pady=(px(theme.S1), 0))
@@ -249,7 +248,7 @@ class SettingsWindow:
             note = ""
         if selected and selected not in names:
             names.append(selected)
-            note = "This device is not available right now; the system default is used."
+            note = "This device is not available right now; reading pauses until it is back or you pick another."
         menu = self.device_menu.menu
         menu.delete(0, "end")
         for name in [DEFAULT_DEVICE, *names]:
@@ -337,7 +336,7 @@ class SettingsWindow:
         if self._changed() is None:
             return
         self.player.preview(SAMPLE_TEXT)
-        if self.player.status == pl.ERROR:
+        if self.player.status == pl.ERROR and not self.player.speech_error:
             self._status("The model failed to load, so the sample cannot be read.", ERROR_FG)
         elif self.player.status == pl.LOADING:
             self._status("The model is loading; the sample will play when it is ready.", MUTED)

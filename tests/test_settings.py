@@ -57,13 +57,26 @@ class FakeStream:
 
 
 class FakeTTS:
-    def __init__(self, seconds=0.25):
+    def __init__(self, seconds=0.25, failures=0):
         self.seconds = seconds
+        self.failures = failures  # the first n calls raise, like a CUDA error would
         self.calls: list[dict] = []
 
     def stream(self, text, speed=1.0, seed=None, sample_rate=48000):
         self.calls.append({"text": text, "speed": speed, "seed": seed, "sample_rate": sample_rate})
+        if self.failures:
+            self.failures -= 1
+            raise RuntimeError("CUDA error: out of memory\nmore details")
         yield np.full(int(sample_rate * self.seconds), 0.5, dtype=np.float32)
+
+
+def wait_for(test, condition, timeout=3.0):
+    end = time.monotonic() + timeout
+    while time.monotonic() < end:
+        if condition():
+            return
+        time.sleep(0.01)
+    test.fail("timed out")
 
 
 class FakeAudioTest(unittest.TestCase):
@@ -105,6 +118,14 @@ class SaveVoiceTest(unittest.TestCase):
             sw.save_voice({"volume": 70}, path)
             self.assertEqual(cfg.load(path)["voice"]["volume"], 70)
 
+    def test_broken_file_is_not_overwritten(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "config.json"
+            path.write_text('{"hotkeys": {"skip": "<f9>"', encoding="utf-8")
+            with self.assertRaises(ValueError):
+                sw.save_voice({"volume": 70}, path)
+            self.assertEqual(path.read_text(encoding="utf-8"), '{"hotkeys": {"skip": "<f9>"')
+
 
 class FormParseTest(unittest.TestCase):
     def test_seed_choices(self):
@@ -135,40 +156,84 @@ class VolumeTest(unittest.TestCase):
 
 
 class OutputDeviceTest(FakeAudioTest):
-    def test_lookup_and_fallback(self):
-        self.assertIsNone(pl.find_output_device(None))
+    def test_lookup(self):
+        self.assertIsNone(pl.find_output_device(None))  # None is the system default, chosen on purpose
         self.assertEqual(pl.find_output_device("Speakers"), 1)  # the default host API comes first
         self.assertEqual(pl.find_output_device("Headphones"), 2)
-        with mock.patch("builtins.print"):
-            self.assertIsNone(pl.find_output_device("Unplugged device"))
+        with self.assertRaisesRegex(pl.DeviceError, "^Output device 'Unplugged device' not found$"):
+            pl.find_output_device("Unplugged device")
         self.assertEqual(pl.output_devices(), ["Speakers"])
 
-    def test_unknown_device_plays_on_default(self):
-        player = pl.Player(SpeechQueue(), {"output_device": "Unplugged device"})
-        player.tts = FakeTTS()
-        with mock.patch("builtins.print"):
-            player._speak("merhaba", lambda: True)
-        self.assertIsNone(FakeStream.opened[0].device)
-        self.assertTrue(FakeStream.opened[0].writes)
-
-    def test_device_that_fails_to_open_falls_back(self):
+    def test_device_that_fails_to_open_is_not_replaced(self):
         FakeStream.fail_devices = (1,)
         player = pl.Player(SpeechQueue(), {"output_device": "Speakers"})
         player.tts = FakeTTS()
-        with mock.patch("builtins.print"):
+        with self.assertRaisesRegex(pl.DeviceError, "^Output device 'Speakers' could not be opened"):
             player._speak("merhaba", lambda: True)
-        self.assertEqual(len(FakeStream.opened), 1)
-        self.assertIsNone(FakeStream.opened[0].device)
+        self.assertEqual(FakeStream.opened, [])  # nothing was played on the system default
+
+
+class PlaybackErrorTest(FakeAudioTest):
+    def start(self, voice=None, tts=None):
+        queue = SpeechQueue()
+        player = pl.Player(queue, voice)
+        player._load = lambda: tts or FakeTTS()
+        printer = mock.patch("builtins.print")
+        printer.start()
+        self.addCleanup(printer.stop)
+        player.start()
+        return queue, player
+
+    def test_missing_device_pauses_and_keeps_the_item(self):
+        queue, player = self.start({"output_device": "Headphones (unplugged)"})
+        item = queue.add("gizli metin")
+        wait_for(self, lambda: player.speech_error)
+        self.assertEqual(player.speech_error, "Output device 'Headphones (unplugged)' not found — reading paused")
+        self.assertEqual((player.status, player.paused), (pl.ERROR, True))
+        self.assertEqual(FakeStream.opened, [])
+        time.sleep(0.3)
+        self.assertEqual([i.id for i in queue.snapshot()], [item.id])  # not dropped, not retried while paused
+
+        player.update({"output_device": "Headphones"})  # back, or the user picked another device
+        player.toggle_pause()
+        self.assertEqual((player.speech_error, player.status), ("", pl.READY))
+        wait_for(self, lambda: not queue.snapshot())
+        self.assertEqual(FakeStream.opened[0].device, 2)
+
+    def test_speech_error_is_shown_and_retried_on_resume(self):
+        tts = FakeTTS(failures=1)
+        queue, player = self.start(tts=tts)
+        queue.add("bir")
+        wait_for(self, lambda: player.speech_error)
+        self.assertEqual(player.speech_error, "Speech error: CUDA error: out of memory — reading paused")
+        self.assertEqual(player.status, pl.ERROR)
+        self.assertEqual(len(queue.snapshot()), 1)
+        player.toggle_pause()
+        wait_for(self, lambda: not queue.snapshot())
+        self.assertEqual(len(tts.calls), 2)
+        wait_for(self, lambda: player.status == pl.READY)
+
+    def test_load_error_is_not_cleared_by_resume(self):
+        player = pl.Player(SpeechQueue())
+        player.status, player.error = pl.ERROR, "OSError: weights missing"
+        player.toggle_pause()
+        player.toggle_pause()
+        self.assertEqual((player.status, player.speech_error), (pl.ERROR, ""))
+
+    def test_removing_the_paused_item_ends_it_without_resume(self):
+        queue, player = self.start(tts=FakeTTS(seconds=2.0))
+        FakeStream.on_write = lambda stream: player.toggle_pause() if len(stream.writes) == 1 else None
+        item = queue.add("uzun bir metin")
+        wait_for(self, lambda: player.paused and player.status == pl.PAUSED)
+        queue.remove(item.id)
+        wait_for(self, lambda: FakeStream.opened[0].closed, timeout=1.0)
+        self.assertTrue(player.paused)
+        self.assertEqual(len(FakeStream.opened[0].writes), 1)
 
 
 class LiveSettingsTest(FakeAudioTest):
     def wait_for(self, condition, timeout=3.0):
-        end = time.monotonic() + timeout
-        while time.monotonic() < end:
-            if condition():
-                return
-            time.sleep(0.01)
-        self.fail("timed out")
+        wait_for(self, condition, timeout)
 
     def test_next_item_uses_updated_settings(self):
         queue = SpeechQueue()

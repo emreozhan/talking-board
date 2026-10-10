@@ -44,6 +44,7 @@ BODY = "Segoe UI Variable Text"
 BODY_STRONG = "Segoe UI Variable Text Semibold"
 MONO = "Cascadia Mono"
 ICONS = "Segoe Fluent Icons"
+ICONS_FALLBACK = "Segoe MDL2 Assets"  # Windows 10 lacks Segoe Fluent Icons; MDL2 has the same code points
 # Pillow needs files; the first one that exists wins
 BADGE_FONTS = ("bahnschrift.ttf", "segoeuib.ttf", "arialbd.ttf")
 
@@ -120,6 +121,21 @@ def window_chrome(window, popup: bool = False) -> bool:
         return rounded
     except (AttributeError, OSError, ValueError):
         return False
+
+
+def icon_font(families) -> str:
+    """The icon font to use given the installed font families."""
+    if ICONS not in families and ICONS_FALLBACK in families:
+        return ICONS_FALLBACK
+    return ICONS
+
+
+def pick_icon_font(root):
+    """Switches ICONS to the fallback where Segoe Fluent Icons is missing (Windows 10 by default)."""
+    global ICONS
+    import tkinter.font as tkfont
+
+    ICONS = icon_font(set(tkfont.families(root)))
 
 
 def set_icon(window):

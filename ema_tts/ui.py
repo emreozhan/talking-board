@@ -14,9 +14,10 @@ from PIL import Image
 from . import art, theme
 from . import config as cfg
 from . import player as pl
-from .speech_queue import PLAYING, SpeechQueue
+from .speech_queue import PLAYING, Rejected, SpeechQueue
 from .widgets import Button, LayeredWindow, ThinScrollbar
 
+APP_NAME = "Talking Board"
 TRANSPARENT = "#ff00fe"  # colour key, only used when layered windows are unavailable
 PREVIEW_CHARS = 160
 FRAME_MS = 40  # while animating
@@ -32,14 +33,15 @@ class App:
         self.queue = speech_queue
         self.player = player
         self.hotkey_label = hotkey_label
-        self.hotkey_warning = ""  # hotkeys that could not be registered
+        self.warnings: list[str] = []  # config.json problems, hotkeys that could not be registered
         self.state_file = state_file
         self.events: stdqueue.Queue[str] = stdqueue.Queue()  # requests from other threads
 
         self.root = tk.Tk()
+        theme.pick_icon_font(self.root)
         self.scale = self.root.winfo_fpixels("1i") / 96
         self.size = round(theme.BUBBLE * self.scale)
-        self._seen = (None, None, None)
+        self._seen = (None, None, None, None)
         self._flash = None
         self._flash_start = 0.0
         self._start = time.monotonic()
@@ -82,7 +84,7 @@ class App:
     # ---------- bubble ----------
     def _build_bubble(self):
         root = self.root
-        root.title("EMA TTS")
+        root.title(APP_NAME)
         root.overrideredirect(True)
         root.attributes("-topmost", True)
         x, y = self._load_position()
@@ -171,9 +173,18 @@ class App:
         self.menu.add_command(label="Quit", command=self.quit)
 
     def _save_auto_read(self):
-        config = cfg.load()
-        config["server"]["auto_read"] = self.auto_read.get()
-        cfg.save(config)
+        try:
+            cfg.update("server", {"auto_read": self.auto_read.get()})
+        except (OSError, ValueError) as error:
+            message = f"Could not save \"Read agent messages\" to config.json: {error}"
+            print(message)
+            self.auto_read.set(not self.auto_read.get())
+            self.warn(message)
+
+    def warn(self, message: str):
+        if message not in self.warnings:
+            self.warnings.append(message)
+        self._seen = (None, None, None, None)  # redraw the panel
 
     def _on_menu(self, event):
         self.menu.tk_popup(event.x_root, event.y_root)
@@ -199,6 +210,7 @@ class App:
         self.mark.pack(side="left")
         tk.Label(header, text="Speech queue", bg=bg, fg=theme.PAPER,
                  font=self.font(12, family=theme.DISPLAY)).pack(side="left", padx=(px(theme.S2), 0))
+        self._tag(header, "AI VOICE").pack(side="left", padx=(px(theme.S2), 0))
         Button(header, "", self.hide_panel, px=px, kind="ghost", icon=theme.ICON_CLOSE, height=28,
                square=True, takefocus=False).pack(side="right")
         Button(header, "", self.open_settings, px=px, kind="ghost", icon=theme.ICON_SETTINGS, height=28,
@@ -254,6 +266,19 @@ class App:
         canvas.create_text(w / 2, h / 2, text=text, font=font, fill=theme.MUTED)
         return canvas
 
+    def _tag(self, parent, text):
+        """Small outlined label in the title row; says that the voice is synthetic."""
+        px = self.px
+        font = (theme.LABEL, 7)
+        w = tkfont.Font(root=self.root, font=font).measure(text) + px(10)
+        h = px(16)
+        canvas = tk.Canvas(parent, bg=parent["bg"], highlightthickness=0, bd=0, width=w, height=h)
+        image = art.photo(canvas, ("tag", w, h), lambda: art.rounded(w, h, px(theme.RADIUS_SM), theme.NIGHT,
+                                                                     theme.LINE, px(1)))
+        canvas.create_image(0, 0, image=image, anchor="nw")
+        canvas.create_text(w / 2, h / 2, text=text, font=font, fill=theme.MUTED)
+        return canvas
+
     def _button(self, parent, text, command, kind="secondary", icon=None):
         return Button(parent, text, command, px=self.px, kind=kind, icon=icon)
 
@@ -269,10 +294,11 @@ class App:
         self.count_label.configure(text=f"·  {len(items)} item" + ("" if len(items) == 1 else "s"))
 
         lines = []
-        if self.player.status == pl.ERROR:
+        if self.player.speech_error:
+            lines.append(self.player.speech_error)
+        elif self.player.status == pl.ERROR:
             lines.append(f"Model failed to load: {self.player.error.strip().splitlines()[-1]}")
-        if self.hotkey_warning:
-            lines.append(self.hotkey_warning)
+        lines += self.warnings
         if lines:
             color = theme.POMEGRANATE_TEXT if self.player.status == pl.ERROR else theme.AMBER_TEXT
             self.message_icon.configure(text=theme.ICON_WARNING, fg=color)
@@ -323,8 +349,9 @@ class App:
         c.create_text(x + px(15), meta_y, text=label, font=self.font(8, family=theme.LABEL), fill=color,
                       anchor="w", tags=row)
         if playing:
-            right, right_color, right_font = ("PAUSED" if status == pl.PAUSED else "SPEAKING"), theme.SAFFRON, \
-                self.font(8, family=theme.DISPLAY)
+            right = {pl.PAUSED: "PAUSED", pl.ERROR: "FAILED"}.get(status, "SPEAKING")
+            right_color = theme.POMEGRANATE_TEXT if status == pl.ERROR else theme.SAFFRON
+            right_font = self.font(8, family=theme.DISPLAY)
         else:
             right, right_color, right_font = datetime.fromtimestamp(item.added).strftime("%H:%M"), theme.FAINT, \
                 (theme.MONO, 8)
@@ -397,9 +424,14 @@ class App:
             text = self.root.clipboard_get()
         except tk.TclError:
             text = ""
-        item = self.queue.add(text)
-        print(f"queued #{item.id} ({len(item.text)} chars)" if item
-              else "not added: clipboard is empty or the text is already queued")
+        try:
+            item = self.queue.add(text)
+        except Rejected as error:
+            item = None
+            print(f"not added: {error}")
+        else:
+            print(f"queued #{item.id} ({len(item.text)} chars)" if item
+                  else "not added: clipboard is empty or the text is already queued")
         self._flash = "ok" if item else "reject"
         self._flash_start = time.monotonic()
 
@@ -438,7 +470,7 @@ class App:
             elif event == "clear":
                 self.queue.clear()
 
-        seen = (self.queue.version, self.player.status, self.player.paused)
+        seen = (self.queue.version, self.player.status, self.player.paused, self.player.speech_error)
         changed = seen != self._seen
         self._seen = seen
         animating = self.player.status in (pl.SPEAKING, pl.LOADING) and not self.player.paused

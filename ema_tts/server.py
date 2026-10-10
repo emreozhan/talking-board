@@ -4,15 +4,25 @@ import json
 import socket
 import sys
 import threading
+import unicodedata
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Callable
 from urllib.parse import urlsplit
 
-from .speech_queue import SpeechQueue
+from .speech_queue import QueueFull, SpeechQueue, TooLong
 
 HOST = "127.0.0.1"
 MAX_BODY = 256 * 1024
 DISCARD_LIMIT = 4 * 1024 * 1024
+READ_TIMEOUT = 3.0  # seconds a client may stay silent while sending a request
+MAX_CONNECTIONS = 16
+MAX_SOURCE_CHARS = 64
+
+
+def clean_source(source: str) -> str:
+    """Turns control and format characters (line breaks, escapes, bidi overrides) into spaces; caps the length."""
+    source = "".join(" " if unicodedata.category(ch)[0] == "C" else ch for ch in source)
+    return " ".join(source.split())[:MAX_SOURCE_CHARS].strip()
 
 
 class _Server(ThreadingHTTPServer):
@@ -22,7 +32,25 @@ class _Server(ThreadingHTTPServer):
     def __init__(self, port: int, speech_queue: SpeechQueue, auto_read: Callable[[], bool]):
         self.speech_queue = speech_queue
         self.auto_read = auto_read
+        self._slots = threading.BoundedSemaphore(MAX_CONNECTIONS)
         super().__init__((HOST, port), _Handler)
+
+    def process_request(self, request, client_address):
+        if not self._slots.acquire(blocking=False):
+            print(f"connection refused: more than {MAX_CONNECTIONS} open connections")
+            self.shutdown_request(request)
+            return
+        try:
+            super().process_request(request, client_address)
+        except BaseException:
+            self._slots.release()
+            raise
+
+    def process_request_thread(self, request, client_address):
+        try:
+            super().process_request_thread(request, client_address)
+        finally:
+            self._slots.release()
 
     def server_bind(self):
         if sys.platform == "win32":
@@ -34,7 +62,8 @@ class _Server(ThreadingHTTPServer):
 
 class _Handler(BaseHTTPRequestHandler):
     server: _Server
-    server_version = "ema-tts"
+    server_version = "talking-board"
+    timeout = READ_TIMEOUT
 
     def log_message(self, format, *args):
         pass
@@ -120,7 +149,17 @@ class _Handler(BaseHTTPRequestHandler):
         if not self._auto_read():
             self._reply(202, {"ignored": True})
             return
-        item = self.server.speech_queue.add(text, source or "agent")
+        source = clean_source(source) or "agent"
+        try:
+            item = self.server.speech_queue.add(text, source)
+        except TooLong as exc:
+            print(f"agent message rejected ({source}): {exc}")
+            self._error(413, str(exc), "text")
+            return
+        except QueueFull as exc:
+            print(f"agent message rejected ({source}): {exc}")
+            self._error(429, str(exc), "text")
+            return
         if item is None:
             self._error(409, "text is empty or already queued", "text")
             return
@@ -128,11 +167,12 @@ class _Handler(BaseHTTPRequestHandler):
         self._reply(202, {"id": item.id})
 
     def _auto_read(self) -> bool:
+        """Fails closed: only a readable `true` lets agent messages in."""
         try:
-            return bool(self.server.auto_read())
+            return self.server.auto_read() is True
         except Exception as exc:
-            print(f"could not read auto_read, assuming on: {exc}")
-            return True
+            print(f"could not read server.auto_read, ignoring agent messages: {exc}")
+            return False
 
 
 class SpeakServer:
