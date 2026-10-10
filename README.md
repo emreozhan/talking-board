@@ -122,3 +122,7 @@ Responses: `202 {"id": n}` queued, `202 {"ignored": true}` reading is off, `409`
 ```powershell
 .\.venv\Scripts\python.exe -m unittest discover -s tests
 ```
+
+## License
+
+Copyright 2026 EmreOzhan. Licensed under the [Apache License 2.0](LICENSE). The EMA Lightning model and package are also Apache 2.0.
