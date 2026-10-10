@@ -7,3 +7,4 @@ state.json
 start.bat
 start.cmd
 build.cmd
+.claude/

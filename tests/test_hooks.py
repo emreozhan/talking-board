@@ -12,8 +12,7 @@ from ema_tts import server as speak_server
 from ema_tts.speech_queue import SpeechQueue
 
 HOOKS = Path(__file__).resolve().parent.parent / "hooks"
-SYSTEM_PYTHON = Path(r"C:\Users\emreo\AppData\Local\Programs\Python\Python313\python.exe")
-PYTHON = str(SYSTEM_PYTHON if SYSTEM_PYTHON.exists() else sys.executable)  # the hook runs on the system Python
+PYTHON = sys.executable
 
 
 def free_port() -> int:
@@ -132,8 +131,8 @@ class InstallerTest(unittest.TestCase):
         self.assertEqual(first["hooks"]["Stop"][0], self.original["hooks"]["Stop"][0])
         self.assertEqual(self.ours(first), [{
             "type": "command",
-            "command": r"C:\Users\emreo\AppData\Local\Programs\Python\Python313\python.exe",
-            "args": [r"C:\Users\emreo\Documents\AiProjects\ema-tts\hooks\claude_stop_hook.py"],
+            "command": getattr(sys, "_base_executable", None) or sys.executable,
+            "args": [str(HOOKS / "claude_stop_hook.py")],
             "timeout": 5,
             "async": True,
         }])

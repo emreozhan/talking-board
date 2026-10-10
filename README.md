@@ -2,6 +2,14 @@
 
 A small Windows tool that reads text aloud locally, without internet. Copy text and press a hotkey, or let Claude Code send its replies; the text is queued and read in order. The voice model is [EMA Lightning](https://huggingface.co/canberkkkkkk/ema-lightning) (Turkish, single voice, Apache 2.0), so the text you queue should be Turkish.
 
+## Requirements
+
+- Windows 10 or 11 (hotkeys and the bubble window use Win32 APIs)
+- Python 3.13 (3.11+ should work; only 3.13 is tested)
+- An NVIDIA GPU is recommended; the model also runs on the CPU, more slowly
+
+See [Installation](#installation) for setup.
+
 ## Running
 
 From the project folder, without a console window, with logs written to `ema-tts.log`:
@@ -52,6 +60,8 @@ Markdown is cleaned up before reading: headings, bullets and bold/italic marks a
 ## Installation
 
 ```powershell
+git clone <repo-url>
+cd ema-tts
 python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
 ```

@@ -14,8 +14,9 @@ import sys
 from pathlib import Path
 
 SETTINGS_FILE = Path.home() / ".claude" / "settings.json"
-PYTHON = r"C:\Users\emreo\AppData\Local\Programs\Python\Python313\python.exe"
-HOOK = r"C:\Users\emreo\Documents\AiProjects\ema-tts\hooks\claude_stop_hook.py"
+# the hook only needs the stdlib, so use the base interpreter: it keeps working if the venv is removed
+PYTHON = getattr(sys, "_base_executable", None) or sys.executable
+HOOK = str(Path(__file__).resolve().with_name("claude_stop_hook.py"))
 MARKER = "claude_stop_hook.py"
 BACKUP_SUFFIX = ".bak-ema-tts"
 
