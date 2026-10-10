@@ -1,4 +1,4 @@
-"""Giriş noktası: ayarları okur, oynatıcıyı, kısayolları ve arayüzü başlatır."""
+"""Entry point: loads settings, starts the player, hotkeys, server and UI."""
 
 import ctypes
 import os
@@ -11,7 +11,7 @@ from .player import Player
 from .speech_queue import SpeechQueue
 from .ui import App
 
-# hotkeys bölümündeki eylem -> arayüz olayı
+# action in the hotkeys section -> UI event
 ACTIONS = {
     "add_clipboard": "clipboard",
     "pause_resume": "pause",
@@ -23,22 +23,22 @@ ACTIONS = {
 
 def hotkey_label(hotkey: str) -> str:
     if not hotkey:
-        return "kapalı"
+        return "off"
     try:
         return hk.label(hotkey)
     except ValueError:
-        return "geçersiz"
+        return "invalid"
 
 
 def start_hotkeys(settings: dict, events) -> tuple[hk.Hotkeys, list[str]]:
-    """Eylemleri kaydeder; boş dizge eylemi kapatır. Başarısızları kullanıcı mesajı olarak döner."""
+    """Registers the actions; an empty string disables one. Returns failures as user messages."""
     bindings = {name: (settings[name], lambda event=event: events.put(event))
                 for name, event in ACTIONS.items() if settings.get(name)}
     hotkeys = hk.Hotkeys(bindings)
     failures = hotkeys.start()
     messages = [f"{message} (hotkeys.{name})" for name, message in failures.items()]
     for message in messages:
-        print(f"kısayol kaydedilemedi: {message}")
+        print(f"hotkey not registered: {message}")
     return hotkeys, messages
 
 
@@ -47,6 +47,8 @@ def main():
     if sys.platform == "win32":
         try:
             ctypes.windll.shcore.SetProcessDpiAwareness(1)
+            # own taskbar button and icon instead of python's
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("EmreOzhan.EmaTTS")
         except (AttributeError, OSError):
             pass
 
@@ -61,7 +63,7 @@ def main():
     player.start()
     server = None
     if config["server"]["enabled"]:
-        auto_read = lambda: cfg.load()["server"]["auto_read"]  # menüden değişince yeniden başlatma gerekmesin
+        auto_read = lambda: cfg.load()["server"]["auto_read"]  # so toggling it from the menu needs no restart
         server = speak_server.start(speech_queue, config["server"]["port"], auto_read)
     try:
         app.run()

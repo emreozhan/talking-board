@@ -1,4 +1,4 @@
-"""Panodan gelen metni seslendirmeye hazırlar: markdown temizliği ve parçalama."""
+"""Prepares text for speech: strips markdown and splits it into segments."""
 
 import re
 
@@ -18,7 +18,10 @@ _TERMINAL = ".!?…;:,"
 
 
 def clean(text: str) -> str:
-    """Markdown işaretlerini atar; her satırı noktalamayla bitirip tek metne çevirir."""
+    """Removes markdown marks; ends every line with punctuation and joins them into one text.
+
+    The placeholders are Turkish on purpose: the TTS model only reads Turkish.
+    """
     text = text.replace("\r\n", "\n")
     text = _FENCE.sub("\nKod bloğu.\n", text)
     text = _IMAGE.sub(r"\1", text)
@@ -46,7 +49,7 @@ def clean(text: str) -> str:
 
 
 def split(text: str, max_chars: int = 300) -> list[str]:
-    """Metni cümle sınırlarından, her biri en fazla max_chars olacak parçalara böler."""
+    """Splits the text at sentence boundaries into segments of at most max_chars."""
     pieces = []
     for sentence in _SENTENCE_END.split(text.strip()):
         while len(sentence) > max_chars:

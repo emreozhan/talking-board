@@ -13,7 +13,7 @@ from ema_tts.speech_queue import SpeechQueue
 
 HOOKS = Path(__file__).resolve().parent.parent / "hooks"
 SYSTEM_PYTHON = Path(r"C:\Users\emreo\AppData\Local\Programs\Python\Python313\python.exe")
-PYTHON = str(SYSTEM_PYTHON if SYSTEM_PYTHON.exists() else sys.executable)  # hook sistem Python'u ile çalışır
+PYTHON = str(SYSTEM_PYTHON if SYSTEM_PYTHON.exists() else sys.executable)  # the hook runs on the system Python
 
 
 def free_port() -> int:
@@ -33,6 +33,7 @@ def line(kind, content, **extra):
     return json.dumps({"type": kind, "message": {"role": kind, "content": content}, **extra})
 
 
+# Agent replies are Turkish here, as in real use; this also covers UTF-8 end to end.
 class StopHookTest(unittest.TestCase):
     def setUp(self):
         self.queue = SpeechQueue()
@@ -40,7 +41,7 @@ class StopHookTest(unittest.TestCase):
         self.addCleanup(self.server.stop)
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
-        self.transcript = Path(tmp.name) / "oturum.jsonl"
+        self.transcript = Path(tmp.name) / "session.jsonl"
 
     def assert_silent(self, result):
         self.assertEqual(result.returncode, 0)
@@ -59,15 +60,15 @@ class StopHookTest(unittest.TestCase):
 
     def test_falls_back_to_transcript(self):
         self.transcript.write_text("\n".join([
-            line("user", "eski soru"),
-            line("assistant", [{"type": "text", "text": "eski cevap"}]),
-            line("user", [{"type": "text", "text": "yeni soru"}]),
-            line("assistant", [{"type": "thinking", "thinking": "gizli düşünce"},
+            line("user", "old question"),
+            line("assistant", [{"type": "text", "text": "old answer"}]),
+            line("user", [{"type": "text", "text": "new question"}]),
+            line("assistant", [{"type": "thinking", "thinking": "hidden thought"},
                                {"type": "text", "text": "Önce bakıyorum."},
                                {"type": "tool_use", "id": "t1", "name": "Read", "input": {}}]),
-            line("user", [{"type": "tool_result", "tool_use_id": "t1", "content": "dosya"}]),
-            line("assistant", [{"type": "text", "text": "Alt agent notu"}], isSidechain=True),
-            "bozuk satır",
+            line("user", [{"type": "tool_result", "tool_use_id": "t1", "content": "file"}]),
+            line("assistant", [{"type": "text", "text": "Subagent note"}], isSidechain=True),
+            "broken line",
             line("assistant", [{"type": "text", "text": "Sonuç: her şey yolunda."}]),
         ]) + "\n", encoding="utf-8")
         event = {"hook_event_name": "Stop", "stop_hook_active": False,
@@ -76,7 +77,7 @@ class StopHookTest(unittest.TestCase):
         self.assertEqual(self.texts(), ["Önce bakıyorum.\n\nSonuç: her şey yolunda."])
 
     def test_stop_hook_active_does_nothing(self):
-        event = {"stop_hook_active": True, "last_assistant_message": "tekrar okunmasın"}
+        event = {"stop_hook_active": True, "last_assistant_message": "do not read again"}
         self.assert_silent(run_hook(event, self.server.port))
         self.assertEqual(self.texts(), [])
 
@@ -87,8 +88,8 @@ class StopHookTest(unittest.TestCase):
 
     def test_silent_when_server_down_or_input_broken(self):
         port = free_port()
-        for stdin in (json.dumps({"last_assistant_message": "kimse dinlemiyor"}).encode(), b"{bozuk", b"",
-                      json.dumps({"transcript_path": "C:/yok/yok.jsonl"}).encode()):
+        for stdin in (json.dumps({"last_assistant_message": "nobody listening"}).encode(), b"{broken", b"",
+                      json.dumps({"transcript_path": "C:/missing/missing.jsonl"}).encode()):
             with self.subTest(stdin=stdin):
                 started = time.monotonic()
                 self.assert_silent(run_hook(stdin, port))
@@ -104,8 +105,8 @@ class InstallerTest(unittest.TestCase):
             "model": "opus",
             "permissions": {"allow": ["Bash(git status)"]},
             "hooks": {
-                "Stop": [{"hooks": [{"type": "command", "command": "notify-send bitti"}]}],
-                "PreToolUse": [{"matcher": "Bash", "hooks": [{"type": "command", "command": "kontrol"}]}],
+                "Stop": [{"hooks": [{"type": "command", "command": "notify-send done"}]}],
+                "PreToolUse": [{"matcher": "Bash", "hooks": [{"type": "command", "command": "check"}]}],
             },
         }
         self.settings.write_text(json.dumps(self.original, indent=2), encoding="utf-8")
@@ -139,7 +140,7 @@ class InstallerTest(unittest.TestCase):
 
         mtime = self.settings.stat().st_mtime_ns
         self.assertEqual(self.install(), first)
-        self.assertEqual(self.settings.stat().st_mtime_ns, mtime)  # değişiklik yoksa yazılmaz
+        self.assertEqual(self.settings.stat().st_mtime_ns, mtime)  # not written when nothing changes
 
         removed = self.install("--uninstall")
         self.assertEqual(removed, self.original)
@@ -151,12 +152,12 @@ class InstallerTest(unittest.TestCase):
         self.assertEqual(self.install("--uninstall"), {})
 
     def test_broken_settings_left_untouched(self):
-        self.settings.write_text("{bozuk", encoding="utf-8")
+        self.settings.write_text("{broken", encoding="utf-8")
         result = subprocess.run([PYTHON, "-I", str(HOOKS / "install_claude_hook.py"),
                                  "--settings", str(self.settings)], capture_output=True, timeout=15)
         self.assertEqual(result.returncode, 1)
         self.assertIn(b"settings.json", result.stderr)
-        self.assertEqual(self.settings.read_text(encoding="utf-8"), "{bozuk")
+        self.assertEqual(self.settings.read_text(encoding="utf-8"), "{broken")
 
 
 if __name__ == "__main__":

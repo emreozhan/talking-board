@@ -1,4 +1,4 @@
-"""Win32 RegisterHotKey ile global kısayollar (ctypes, kendi mesaj döngüsü olan thread)."""
+"""Global hotkeys via Win32 RegisterHotKey (ctypes, a thread with its own message loop)."""
 
 import ctypes
 import sys
@@ -21,7 +21,7 @@ MODIFIERS = {"ctrl": MOD_CONTROL, "control": MOD_CONTROL, "alt": MOD_ALT, "shift
              "win": MOD_WIN, "cmd": MOD_WIN}
 MOD_LABELS = [(MOD_WIN, "Win"), (MOD_CONTROL, "Ctrl"), (MOD_ALT, "Alt"), (MOD_SHIFT, "Shift")]
 
-# ad: (sanal tuş kodu, etiket)
+# name: (virtual key code, label)
 SPECIAL_KEYS = {
     "space": (0x20, "Space"),
     "enter": (0x0D, "Enter"),
@@ -41,10 +41,10 @@ SPECIAL_KEYS = {
     "pause": (0x13, "Pause"),
     "print_screen": (0x2C, "Print Screen"),
     "scroll_lock": (0x91, "Scroll Lock"),
-    "media_play_pause": (0xB3, "Medya Oynat/Duraklat"),
-    "media_next": (0xB0, "Medya Sonraki"),
-    "media_previous": (0xB1, "Medya Önceki"),
-    "media_stop": (0xB2, "Medya Durdur"),
+    "media_play_pause": (0xB3, "Media Play/Pause"),
+    "media_next": (0xB0, "Media Next"),
+    "media_previous": (0xB1, "Media Previous"),
+    "media_stop": (0xB2, "Media Stop"),
 }
 SPECIAL_KEYS.update({f"f{n}": (0x70 + n - 1, f"F{n}") for n in range(1, 25)})
 
@@ -56,10 +56,10 @@ class Combo(NamedTuple):
 
 
 def parse(hotkey: str) -> Combo:
-    """'<ctrl>+<shift>+<f9>' gibi bir dizgeyi MOD + VK'ye çevirir; hatada ValueError."""
+    """Turns a string like '<ctrl>+<shift>+<f9>' into MOD + VK; raises ValueError on errors."""
     parts = [part.strip().lower() for part in hotkey.split("+")]
     if not hotkey.strip() or any(not part for part in parts):
-        raise ValueError(f"'{hotkey}' geçerli bir kısayol değil (ör. <ctrl>+<shift>+<f9>)")
+        raise ValueError(f"'{hotkey}' is not a valid hotkey (e.g. <ctrl>+<shift>+<f9>)")
     modifiers, key = 0, None
     for part in parts:
         name = part[1:-1] if part.startswith("<") and part.endswith(">") else part
@@ -67,21 +67,21 @@ def parse(hotkey: str) -> Combo:
             modifiers |= MODIFIERS[name]
             continue
         if key is not None:
-            raise ValueError(f"'{hotkey}' kısayolunda birden fazla tuş var: {key[1]} ve {name}")
+            raise ValueError(f"'{hotkey}' has more than one key: {key[1]} and {name}")
         if name in SPECIAL_KEYS:
             key = SPECIAL_KEYS[name]
         elif len(name) == 1 and (name.isascii() and name.isalnum()):
             key = (ord(name.upper()), name.upper())
         else:
-            raise ValueError(f"'{hotkey}' kısayolunda bilinmeyen tuş: {name}")
+            raise ValueError(f"'{hotkey}' has an unknown key: {name}")
     if key is None:
-        raise ValueError(f"'{hotkey}' kısayolunda tuş yok, yalnızca değiştirici var")
+        raise ValueError(f"'{hotkey}' has no key, only modifiers")
     names = [text for flag, text in MOD_LABELS if modifiers & flag]
     return Combo(modifiers, key[0], "+".join(names + [key[1]]))
 
 
 def label(hotkey: str) -> str:
-    """Görüntü etiketi, ör. 'Ctrl+Shift+F9'."""
+    """Display label, e.g. 'Ctrl+Shift+F9'."""
     return parse(hotkey).label
 
 
@@ -101,15 +101,15 @@ if sys.platform == "win32":
 
 
 class Hotkeys(threading.Thread):
-    """Kısayolları kendi thread'inde kaydeder ve WM_HOTKEY gelince callback'i çağırır.
+    """Registers hotkeys on its own thread and calls the callback on WM_HOTKEY.
 
-    bindings: {ad: (kısayol dizgesi, callback)}. start() başarısız olanları {ad: mesaj} olarak döner.
+    bindings: {name: (hotkey string, callback)}. start() returns failures as {name: message}.
     """
 
     def __init__(self, bindings: dict[str, tuple[str, Callable[[], None]]]):
         super().__init__(daemon=True, name="ema-hotkeys")
         self.bindings = bindings
-        self.ids: dict[str, int] = {}  # ad -> RegisterHotKey id
+        self.ids: dict[str, int] = {}  # name -> RegisterHotKey id
         self.failures: dict[str, str] = {}
         self._callbacks: dict[int, Callable[[], None]] = {}
         self._ready = threading.Event()
@@ -128,13 +128,13 @@ class Hotkeys(threading.Thread):
                 self.failures[name] = str(exc)
                 continue
             if (combo.modifiers, combo.vk) in seen:
-                self.failures[name] = f"{combo.label} başka bir eylemde de tanımlı ({seen[combo.modifiers, combo.vk]})"
+                self.failures[name] = f"{combo.label} is also assigned to another action ({seen[combo.modifiers, combo.vk]})"
                 continue
             if not user32.RegisterHotKey(None, next_id, combo.modifiers | MOD_NOREPEAT, combo.vk):
                 error = ctypes.get_last_error()
-                self.failures[name] = (f"{combo.label} başka bir program tarafından kullanılıyor"
+                self.failures[name] = (f"{combo.label} is used by another program"
                                        if error == ERROR_HOTKEY_ALREADY_REGISTERED
-                                       else f"{combo.label} kaydedilemedi (Windows hata kodu {error})")
+                                       else f"{combo.label} could not be registered (Windows error {error})")
                 continue
             seen[combo.modifiers, combo.vk] = name
             self.ids[name] = next_id
@@ -142,7 +142,7 @@ class Hotkeys(threading.Thread):
 
     def run(self):
         msg = wintypes.MSG()
-        user32.PeekMessageW(ctypes.byref(msg), None, 0, 0, PM_NOREMOVE)  # thread mesaj kuyruğunu oluşturur
+        user32.PeekMessageW(ctypes.byref(msg), None, 0, 0, PM_NOREMOVE)  # creates the thread message queue
         try:
             self._register_all()
         finally:

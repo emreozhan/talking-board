@@ -1,4 +1,4 @@
-"""Ayarlar: varsayılanlar + config.json. Her özellik kendi bölümünü kullanır."""
+"""Settings: defaults + config.json. Each feature uses its own section."""
 
 import copy
 import json
@@ -11,8 +11,8 @@ DEFAULTS = {
     "voice": {
         "speed": 1.0,
         "volume": 100,
-        "seed": None,  # None: her okumada rastgele
-        "output_device": None,  # None: sistem varsayılanı
+        "seed": None,  # None: random on every reading
+        "output_device": None,  # None: system default
         "sample_rate": 48000,
         "max_chars": 300,
         "use_lightning": False,
@@ -33,7 +33,7 @@ DEFAULTS = {
 
 
 def load(path: Path = CONFIG_FILE) -> dict:
-    """Varsayılanları config.json ile bölüm bölüm birleştirir."""
+    """Merges config.json into the defaults section by section."""
     config = copy.deepcopy(DEFAULTS)
     if path.exists():
         user = json.loads(path.read_text(encoding="utf-8"))
@@ -46,7 +46,7 @@ def load(path: Path = CONFIG_FILE) -> dict:
 
 
 def save(config: dict, path: Path = CONFIG_FILE):
-    """Yalnızca varsayılandan farklı değerleri yazar; böylece varsayılanlar dosyada donmaz."""
+    """Writes only values that differ from the defaults, so defaults are not frozen into the file."""
     changed = {}
     for section, values in config.items():
         defaults = DEFAULTS.get(section)

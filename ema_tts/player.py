@@ -1,4 +1,4 @@
-"""Kuyruktaki metinleri EMA Lightning ile üretip hoparlöre akıtan arka plan thread'i."""
+"""Background thread that synthesizes queued text with EMA Lightning and streams it to the speakers."""
 
 import threading
 import traceback
@@ -10,22 +10,22 @@ from . import config as cfg
 from . import textprep
 from .speech_queue import SpeechQueue
 
-LOADING = "yükleniyor"
-READY = "hazır"
-SPEAKING = "okunuyor"
-PAUSED = "duraklatıldı"
-ERROR = "hata"
+LOADING = "loading"
+READY = "ready"
+SPEAKING = "speaking"
+PAUSED = "paused"
+ERROR = "error"
 
-SLICE_SECONDS = 0.1  # silme/duraklatma/ses seviyesi tepki süresi
+SLICE_SECONDS = 0.1  # reaction time for remove/pause/volume
 
 
 def apply_volume(chunk: np.ndarray, volume: float) -> np.ndarray:
-    """0–100 % yazılım kazancı; taşan örnekler kırpılır."""
+    """0–100 % software gain; overflowing samples are clipped."""
     return np.clip(chunk * (volume / 100.0), -1.0, 1.0).astype(np.float32, copy=False)
 
 
 def _outputs(all_hostapis: bool = True):
-    """Çıkış cihazları [(indeks, ad, varsayılan sürücüde mi)]; varsayılan sürücününkiler (Windows'ta MME) önce."""
+    """Output devices [(index, name, on default host API)]; default host API (MME on Windows) first."""
     devices = sd.query_devices()
     hostapi = sd.default.hostapi
     found = [(i, d["name"], d["hostapi"] == hostapi) for i, d in enumerate(devices)
@@ -35,7 +35,7 @@ def _outputs(all_hostapis: bool = True):
 
 
 def output_devices() -> list[str]:
-    """Açılır liste için varsayılan sürücünün tekrarsız çıkış cihazı adları."""
+    """Unique output device names of the default host API, for the dropdown."""
     names = []
     for _, name, _ in _outputs(all_hostapis=False):
         if name not in names:
@@ -44,13 +44,13 @@ def output_devices() -> list[str]:
 
 
 def find_output_device(name: str | None) -> int | None:
-    """Cihaz adını indekse çevirir; ad boşsa ya da cihaz yoksa None (sistem varsayılanı)."""
+    """Maps a device name to its index; None (system default) if the name is empty or missing."""
     if not name:
         return None
     try:
         return next(i for i, device_name, _ in _outputs() if device_name == name)
     except StopIteration:
-        print(f"çıkış cihazı bulunamadı: {name!r}, sistem varsayılanı kullanılıyor")
+        print(f"output device not found: {name!r}, using the system default")
     except Exception:
         traceback.print_exc()
     return None
@@ -60,8 +60,8 @@ class Player(threading.Thread):
     def __init__(self, queue: SpeechQueue, voice: dict | None = None):
         super().__init__(daemon=True, name="ema-player")
         self.queue = queue
-        self.voice = {**cfg.DEFAULTS["voice"], **(voice or {})}  # yalnızca bütün olarak değiştirilir
-        self.lightning = bool(self.voice["use_lightning"])  # yükleme anındaki değer; değişmesi yeniden başlatma ister
+        self.voice = {**cfg.DEFAULTS["voice"], **(voice or {})}  # only ever replaced as a whole
+        self.lightning = bool(self.voice["use_lightning"])  # value at load time; changing it needs a restart
         self.status = LOADING
         self.error = ""
         self._resume = threading.Event()
@@ -81,11 +81,11 @@ class Player(threading.Thread):
             self._resume.clear()
 
     def update(self, voice: dict):
-        """Yeni ses ayarları bir sonraki öğede, ses seviyesi hemen geçerli olur."""
+        """New voice settings apply from the next item; volume applies immediately."""
         self.voice = {**self.voice, **voice}
 
     def preview(self, text: str):
-        """Metni kuyruğa girmeden, sıradaki öğeden önce okur. Yeni deneme eskisini keser."""
+        """Reads text ahead of the next item without queueing it. A new preview cuts the previous one."""
         with self._lock:
             self._preview_id += 1
             self._preview = (self._preview_id, text)
@@ -103,7 +103,7 @@ class Player(threading.Thread):
             traceback.print_exc()
             return
         self.status = READY
-        print("model hazır")
+        print("model ready")
 
         while True:
             job = self._take_preview()
@@ -129,9 +129,10 @@ class Player(threading.Thread):
             try:
                 tts = tts.lightning()
             except Exception:
-                print("lightning() kullanılamadı, normal modda devam ediliyor.")
+                print("lightning() unavailable, continuing in normal mode.")
                 traceback.print_exc()
-        for _ in tts.stream("Hazır.", sample_rate=self.voice["sample_rate"]):  # ilk çağrının ısınma gecikmesini burada öde
+        # pay the first-call warm-up cost here; the text is Turkish because the model only reads Turkish
+        for _ in tts.stream("Hazır.", sample_rate=self.voice["sample_rate"]):
             pass
         return tts
 
@@ -151,11 +152,11 @@ class Player(threading.Thread):
         except sd.PortAudioError:
             if device is None:
                 raise
-            print(f"{device_name!r} açılamadı, sistem varsayılanı kullanılıyor")
+            print(f"could not open {device_name!r}, using the system default")
             return sd.OutputStream(samplerate=sample_rate, channels=1, dtype="float32")
 
     def _speak(self, text: str, alive, pausable: bool = True):
-        voice = self.voice  # öğe boyunca sabit kalır; ses seviyesi her dilimde yeniden okunur
+        voice = self.voice  # fixed for the item; volume is re-read on every slice
         rate = voice["sample_rate"]
         step = int(rate * SLICE_SECONDS)
         with self._open_stream(rate, voice["output_device"]) as out:
