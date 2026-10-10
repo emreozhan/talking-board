@@ -9,7 +9,7 @@ from . import config as cfg
 from . import hotkeys as hk
 from . import server as speak_server
 from .player import Player
-from .speech_queue import SpeechQueue
+from .speech_queue import SpeechQueue, default_history_file
 from .ui import App
 
 MODEL_REPO = "canberkkkkkk/ema-lightning"
@@ -94,7 +94,7 @@ def main():
     config = cfg.load(warnings=warnings)
     for warning in warnings:
         print(warning)
-    speech_queue = SpeechQueue()
+    speech_queue = SpeechQueue(default_history_file())
     player = Player(speech_queue, config["voice"])
     app = App(speech_queue, player, hotkey_label(config["hotkeys"].get("add_clipboard", "")),
               cfg.ROOT / "state.json")
