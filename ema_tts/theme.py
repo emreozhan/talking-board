@@ -64,6 +64,10 @@ ICON_REMOVE = ""
 ICON_AGENT = ""
 ICON_SPEAKER = ""
 ICON_RESET = ""
+ICON_CHEVRON_UP = ""
+ICON_CHEVRON_RIGHT = ""
+ICON_COPY = ""
+ICON_REPLAY = ""
 
 # ---------- shape ----------
 RADIUS_SM = 4
@@ -72,6 +76,8 @@ RADIUS_LG = 10
 S1, S2, S3, S4, S5 = 4, 8, 12, 16, 24
 BUBBLE = 60  # logical size of the floating bubble window
 PANEL_WIDTH = 380
+LIST_MAX = 440  # tallest the panel list grows before it scrolls
+EXPANDED_MAX = 240  # tallest an expanded row's text area grows before it scrolls
 
 # kind: (background, hover, pressed, text)
 BUTTONS = {

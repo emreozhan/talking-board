@@ -2,6 +2,7 @@
 
 import ctypes
 import sys
+import time
 import tkinter as tk
 import tkinter.font as tkfont
 from ctypes import wintypes
@@ -384,3 +385,94 @@ class ThinScrollbar(tk.Canvas):
         y0, y1 = self.first * h + width / 2 + 1, self.last * h - width / 2 - 1
         self.create_line(x, y0, x, max(y0, y1), width=width, capstyle="round",
                          fill=theme.MUTED if active else theme.FAINT)
+
+
+class Chip(Button):
+    """Small outlined value, e.g. the reading speed in the panel header. on_wheel(delta) gets wheel turns."""
+
+    def __init__(self, parent, text, command, *, px, on_wheel=None, accent=False, width_text=None, height=24):
+        self.accent, self.width_text = accent, width_text or text
+        super().__init__(parent, text, command, px=px, kind="ghost", height=height, font=(theme.MONO, 8),
+                         takefocus=False)
+        if on_wheel:
+            self.bind("<MouseWheel>", lambda e: on_wheel(e.delta) or "break")
+
+    def set(self, text=None, icon=None, kind=None, accent=None):
+        self.accent = self.accent if accent is None else accent
+        super().set(text, icon, kind)
+
+    def redraw(self):
+        px = self.px
+        h = px(self.height)
+        w = _measure(self, self.font, self.width_text) + 2 * px(8)
+        color = theme.PRESSED if self.pressed else theme.SURFACE if self.hover else theme.NIGHT
+        fg = theme.SAFFRON if self.accent else theme.PAPER if self.hover else theme.MUTED
+        image = art.photo(self, ("chip", w, h, color), lambda: art.rounded(w, h, px(theme.RADIUS_SM), color,
+                                                                           theme.LINE, px(1)))
+        self.configure(width=w, height=h)
+        self.delete("all")
+        self.create_image(0, 0, image=image, anchor="nw")
+        self.create_text(w / 2, h / 2, text=self.text, font=self.font, fill=fg)
+
+
+class WheelAccumulator:
+    """Turns <MouseWheel> deltas into whole notches.
+
+    Windows reports 120 per notch; high-resolution wheels and touchpads send smaller deltas, which add up
+    here. A change of direction or a pause longer than `idle` seconds drops the unused remainder.
+    """
+
+    NOTCH = 120
+
+    def __init__(self, clock=time.monotonic, idle: float = 1.0):
+        self.clock, self.idle = clock, idle
+        self.rest, self.last = 0, None
+
+    def feed(self, delta: int) -> int:
+        now = self.clock()
+        if self.last is not None and now - self.last > self.idle:
+            self.rest = 0
+        self.last = now
+        if self.rest and (delta > 0) != (self.rest > 0):
+            self.rest = 0
+        self.rest += delta
+        steps = int(self.rest / self.NOTCH)  # towards zero, so the remainder keeps its sign
+        self.rest -= steps * self.NOTCH
+        return steps
+
+
+class Debounce:
+    """Calls `callback` once, `delay` ms after the last trigger(); after/cancel are Tk's after/after_cancel."""
+
+    def __init__(self, after, cancel, delay: int, callback):
+        self.after, self.cancel, self.delay, self.callback = after, cancel, delay, callback
+        self._job = None
+
+    @property
+    def pending(self) -> bool:
+        return self._job is not None
+
+    def trigger(self):
+        if self._job is not None:
+            self.cancel(self._job)
+        self._job = self.after(self.delay, self._fire)
+
+    def flush(self):
+        """Runs a pending call now, e.g. before quitting."""
+        if self._job is not None:
+            self.cancel(self._job)
+            self._fire()
+
+    def _fire(self):
+        self._job = None
+        self.callback()
+
+
+def wheel_target(first: float, last: float, units: int) -> str:
+    """Where a wheel turn over an inner scrolling area goes: "inner" while it can still move that way,
+    "outer" (the panel) once it is at the top or bottom, like scroll chaining in a browser."""
+    if units < 0 and first > 0.0:
+        return "inner"
+    if units > 0 and last < 1.0:
+        return "inner"
+    return "outer"
