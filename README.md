@@ -1,4 +1,4 @@
-# ema-tts
+# talking-board
 
 A small Windows tool that reads text aloud locally, without internet. Copy text and press a hotkey, or let Claude Code send its replies; the text is queued and read in order. The voice model is [EMA Lightning](https://huggingface.co/canberkkkkkk/ema-lightning) (Turkish, single voice, Apache 2.0), so the text you queue should be Turkish.
 
@@ -60,8 +60,8 @@ Markdown is cleaned up before reading: headings, bullets and bold/italic marks a
 ## Installation
 
 ```powershell
-git clone <repo-url>
-cd ema-tts
+git clone https://github.com/emreozhan/talking-board.git
+cd talking-board
 python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
 ```
