@@ -1,6 +1,8 @@
-"""Claude Code Stop hook: sends the agent's last reply to the ema-tts /speak endpoint.
+"""Claude Code Stop hook: sends the agent's last reply to the Talking Board /speak endpoint.
 
 Uses only the stdlib. Always exits 0 and never writes to stdout; it never blocks Claude.
+Sends nothing unless server.enabled and server.auto_read in config.json are true (both default to true
+when there is no config.json); a config.json that cannot be read also means nothing is sent.
 Port lookup order: EMA_TTS_PORT environment variable, server.port in config.json, default 47821.
 """
 
@@ -16,14 +18,24 @@ CONFIG_FILE = Path(__file__).resolve().parent.parent / "config.json"
 SKIPPED_BLOCKS = {"tool_use", "tool_result", "thinking", "redacted_thinking"}
 
 
-def port() -> int:
-    value = os.environ.get("EMA_TTS_PORT")
-    if not value:
-        try:
-            value = json.loads(CONFIG_FILE.read_text(encoding="utf-8"))["server"]["port"]
-        except (OSError, ValueError, KeyError, TypeError):
-            value = DEFAULT_PORT
-    return int(value)
+def server_settings() -> dict | None:
+    """The server section of config.json; {} without a config.json, None if it cannot be read."""
+    if not CONFIG_FILE.exists():
+        return {}
+    try:
+        config = json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    server = config.get("server", {}) if isinstance(config, dict) else None
+    return server if isinstance(server, dict) else None
+
+
+def allowed(server: dict | None) -> bool:
+    return server is not None and server.get("enabled", True) is True and server.get("auto_read", True) is True
+
+
+def port(server: dict) -> int:
+    return int(os.environ.get("EMA_TTS_PORT") or server.get("port", DEFAULT_PORT))
 
 
 def _texts(content) -> list[str]:
@@ -72,9 +84,9 @@ def message(event: dict) -> str:
     return from_transcript(os.path.expanduser(path)) if path else ""
 
 
-def send(text: str):
+def send(text: str, server: dict):
     body = json.dumps({"text": text, "source": "claude"}, ensure_ascii=False).encode("utf-8")
-    conn = http.client.HTTPConnection("127.0.0.1", port(), timeout=TIMEOUT)
+    conn = http.client.HTTPConnection("127.0.0.1", port(server), timeout=TIMEOUT)
     try:
         conn.request("POST", "/speak", body, {"Content-Type": "application/json"})
         conn.getresponse().read()
@@ -83,12 +95,13 @@ def send(text: str):
 
 
 def main():
-    event = json.loads(sys.stdin.buffer.read().decode("utf-8"))
-    if not isinstance(event, dict) or event.get("stop_hook_active"):
+    event = json.loads(sys.stdin.buffer.read().decode("utf-8"))  # read stdin fully, so Claude's write never fails
+    server = server_settings()
+    if not allowed(server) or not isinstance(event, dict) or event.get("stop_hook_active"):
         return
     text = message(event)
     if text:
-        send(text)
+        send(text, server)
 
 
 if __name__ == "__main__":
